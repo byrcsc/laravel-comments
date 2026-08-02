@@ -34,7 +34,7 @@ return new class extends Migration
             // of bytes; a reaction key should be a word, not a sentence.
             // AllowedReactions::MAX_LENGTH refuses anything longer in PHP and
             // has to match this width.
-            $table->string('reaction', 64);
+            $this->reactionColumn($table);
 
             $table->timestamps();
 
@@ -65,6 +65,20 @@ return new class extends Migration
         $table = config('comments.table_names.comments');
 
         return is_string($table) && $table !== '' ? $table : 'comments';
+    }
+
+    /**
+     * MySQL's `_ci` collations weigh every emoji the same, so '👍' and '🎉'
+     * collide in the unique index and merge under `group by`. SQLite and
+     * Postgres already compare exactly and do not know this collation name.
+     */
+    private function reactionColumn(Blueprint $table): void
+    {
+        $column = $table->string('reaction', 64);
+
+        if (in_array(Schema::getConnection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            $column->charset('utf8mb4')->collation('utf8mb4_bin');
+        }
     }
 
     private function reactorColumns(Blueprint $table): void
