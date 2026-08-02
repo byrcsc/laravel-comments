@@ -6,6 +6,7 @@ namespace ByRcsc\LaravelComments;
 
 use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Exceptions\InvalidConfigurationException;
+use ByRcsc\LaravelComments\Support\AllowedReactions;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -19,7 +20,10 @@ final class CommentsServiceProvider extends PackageServiceProvider
             ->hasConfigFile('comments')
             ->hasTranslations()
             ->hasViews()
-            ->hasMigration('create_comments_table');
+            ->hasMigrations(
+                'create_comments_table',
+                'create_comment_reactions_table',
+            );
     }
 
     /**
@@ -43,6 +47,24 @@ final class CommentsServiceProvider extends PackageServiceProvider
         // so "unset" would only mean an undocumented fallback chosen elsewhere.
         CommentStatus::fromConfig('comments.default_status', $config['default_status'] ?? null);
         CommentStatus::fromConfig('comments.guest_status', $config['guest_status'] ?? null);
+
+        $this->validateAllowedReactions($config);
+    }
+
+    /**
+     * Absent is not the same as null here. Null means "allow anything", so a
+     * published config that predates the key would quietly turn the allowlist
+     * off rather than announce that it needs updating.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private function validateAllowedReactions(array $config): void
+    {
+        if (! array_key_exists('allowed_reactions', $config)) {
+            throw InvalidConfigurationException::missingAllowedReactions();
+        }
+
+        AllowedReactions::read($config['allowed_reactions']);
     }
 
     /**

@@ -112,18 +112,26 @@ abstract class TestCase extends Orchestra
 
         $this->createStubTables();
 
-        $this->runCommentsMigration();
+        $this->runPackageMigrations();
     }
 
     /**
-     * Loading the real stub is the point: a suite that builds its own schema
-     * proves nothing about the one that ships.
+     * Loading the real stubs is the point: a suite that builds its own schema
+     * proves nothing about the one that ships. Order matters - the reaction
+     * table's foreign key needs the comments table to exist.
      */
-    protected function runCommentsMigration(): void
+    protected function runPackageMigrations(): void
     {
-        $migration = require __DIR__.'/../database/migrations/create_comments_table.php.stub';
+        $migrations = [
+            'create_comments_table',
+            'create_comment_reactions_table',
+        ];
 
-        $migration->up();
+        foreach ($migrations as $name) {
+            $migration = require __DIR__."/../database/migrations/{$name}.php.stub";
+
+            $migration->up();
+        }
     }
 
     /**

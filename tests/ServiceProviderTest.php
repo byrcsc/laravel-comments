@@ -13,7 +13,9 @@ it('loads the config with its documented defaults', function (): void {
         ->and(config('comments.max_depth'))->toBe(3)
         ->and(config('comments.max_length'))->toBeNull()
         ->and(config('comments.default_status'))->toBe('approved')
-        ->and(config('comments.guest_status'))->toBe('pending');
+        ->and(config('comments.guest_status'))->toBe('pending')
+        ->and(config('comments.table_names.comment_reactions'))->toBe('comment_reactions')
+        ->and(config('comments.allowed_reactions'))->toBeArray();
 });
 
 it('registers the four publish tags', function (): void {
@@ -59,6 +61,16 @@ describe('boot-time validation', function (): void {
             ->toThrow(InvalidConfigurationException::class);
     });
 
+    it('rejects an allowlist holding something that is not a reaction', function (): void {
+        expect(fn () => $this->rebootWith(['comments.allowed_reactions' => ['👍', 42]]))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects an allowlist that is neither a list nor null', function (): void {
+        expect(fn () => $this->rebootWith(['comments.allowed_reactions' => '👍']))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
     it('accepts null for unlimited depth and length', function (): void {
         $this->rebootWith(['comments.max_depth' => null, 'comments.max_length' => null]);
 
@@ -68,7 +80,10 @@ describe('boot-time validation', function (): void {
 });
 
 it('honors a renamed comments table', function (): void {
-    $this->rebootWith(['comments.table_names' => ['comments' => 'discussion_entries']]);
+    $this->rebootWith(['comments.table_names' => [
+        'comments' => 'discussion_entries',
+        'comment_reactions' => 'discussion_entry_reactions',
+    ]]);
 
     $comment = post()->comment('On a renamed table', by: user());
 

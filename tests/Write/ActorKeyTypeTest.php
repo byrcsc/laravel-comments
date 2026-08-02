@@ -46,3 +46,45 @@ it('supports plain string commentator keys', function (): void {
     expect($read->commentator_id)->toBe('employee:7')
         ->and($read->commentator)->toBeInstanceOf(StringUser::class);
 });
+
+/*
+ * One setting covers both identities, so the reactor has to follow the
+ * commentator rather than quietly stay an integer.
+ */
+
+it('supports uuid reactor keys', function (): void {
+    $this->rebootWith(['comments.actor_key_type' => 'uuid']);
+
+    $reactor = UuidUser::create(['name' => 'Grace Hopper']);
+    $comment = post()->commentAsGuest('Hello', name: 'Jane', email: 'jane@example.com');
+
+    $comment->react('👍', by: $reactor);
+
+    expect($comment->reactions()->sole()->reactor_id)->toBe($reactor->getKey())
+        ->and($comment->reactionsBy($reactor))->toBe(['👍'])
+        ->and($comment->hasReactionFrom($reactor))->toBeTrue();
+});
+
+it('supports plain string reactor keys', function (): void {
+    $this->rebootWith(['comments.actor_key_type' => 'string']);
+
+    $reactor = StringUser::create(['id' => 'employee:7', 'name' => 'Mary Jackson']);
+    $comment = post()->commentAsGuest('Hello', name: 'Jane', email: 'jane@example.com');
+
+    $comment->react('👍', by: $reactor);
+
+    expect($comment->reactions()->sole()->reactor_id)->toBe('employee:7')
+        ->and($comment->hasReactionFrom($reactor, '👍'))->toBeTrue();
+});
+
+it('supports ulid reactor keys', function (): void {
+    $this->rebootWith(['comments.actor_key_type' => 'ulid']);
+
+    $reactor = UlidUser::create(['name' => 'Annie Easley']);
+    $comment = post()->commentAsGuest('Hello', name: 'Jane', email: 'jane@example.com');
+
+    $comment->react('👍', by: $reactor);
+
+    expect($comment->reactions()->sole()->reactor_id)->toBe($reactor->getKey())
+        ->and($comment->hasReactionFrom($reactor, '👍'))->toBeTrue();
+});

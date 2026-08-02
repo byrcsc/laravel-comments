@@ -17,7 +17,9 @@ an authenticated comment, a reply, a guest comment, and the
 `topLevel()->with('replies')` read, printed to the console. It then runs the
 moderation loop: the guest comment arrives pending, the hook on `Post` holds a
 comment carrying a link, a moderator approves and marks spam by hand, and the
-`approved()` scope decides both readings.
+`approved()` scope decides both readings. Then the reaction loop: react, react
+again to no effect, toggle back off, and get refused a reaction the allowlist
+does not carry.
 
 To poke at the result by hand:
 
@@ -57,6 +59,26 @@ $guest->approve(by: $moderator);    // false: nothing moved, nothing fired
 
 $post->comments()->pending()->count();
 $post->comments()->approved()->count();
+```
+
+Reactions by hand:
+
+```php
+$comment = $post->comments()->first();
+
+$comment->react('👍', by: $moderator);
+$comment->react('👍', by: $moderator);   // The same tap twice: one row.
+$comment->reactionSummary();             // ['👍' => 1]
+
+$comment->hasReactionFrom($moderator, '👍');   // true
+$comment->reactionsBy($moderator);             // ['👍']
+
+$comment->toggleReaction('👍', by: $moderator);  // false: taken back off
+$comment->react('🦆', by: $moderator);           // InvalidReactionException
+
+// One query for a whole thread's counts, not one per comment.
+$post->comments()->with('reactionCounts')->get()
+    ->map(fn ($c) => $c->reactionSummary());
 ```
 
 Tear it down again with:

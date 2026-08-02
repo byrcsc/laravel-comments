@@ -51,6 +51,22 @@ final class InvalidConfigurationException extends CommentsException
         );
     }
 
+    public static function missingAllowedReactions(): self
+    {
+        return new self(
+            'The comments.allowed_reactions config key is missing. Publish the config again, or add the key: a list of non-empty strings, or null to allow any reaction.'
+        );
+    }
+
+    public static function invalidAllowedReactions(mixed $reactions): self
+    {
+        $given = is_array($reactions) ? 'an array holding something that is not a reaction' : get_debug_type($reactions);
+
+        return new self(
+            "The comments.allowed_reactions config value must be a list of non-empty strings, or null to allow any reaction. Got {$given}."
+        );
+    }
+
     public static function invalidMaxDepth(mixed $depth): self
     {
         $given = is_scalar($depth) ? var_export($depth, true) : get_debug_type($depth);

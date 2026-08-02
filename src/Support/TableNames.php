@@ -16,6 +16,7 @@ final class TableNames
      */
     private const DEFAULTS = [
         'comments' => 'comments',
+        'comment_reactions' => 'comment_reactions',
     ];
 
     /**

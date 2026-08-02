@@ -31,3 +31,12 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   implementing `DecidesCommentStatus`. Guests start `pending`.
 - Comment factory status states: `status()`, `pending()`, `approved()`,
   `rejected()`, and `spam()`.
+- Reactions: `comment_reactions` table with cascade on delete and database
+  uniqueness over comment, reactor, and reaction; `react()`, `unreact()`, and
+  `toggleReaction()`; `reactions()`, `reactionCounts()`, `reactionSummary()`,
+  `hasReactionFrom()`, and `reactionsBy()`; the `CommentReaction` model.
+- `comments.allowed_reactions` config key, with a small emoji set by default
+  and null to accept any reaction.
+- `ReactionAdded` and `ReactionRemoved` events, over the shared
+  `CommentReacted` base.
+- `InvalidReactionException` and `CommentTrashedException`.

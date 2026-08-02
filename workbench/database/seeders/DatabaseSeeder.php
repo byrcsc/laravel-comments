@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Workbench\Database\Seeders;
 
+use ByRcsc\LaravelComments\Exceptions\InvalidReactionException;
 use ByRcsc\LaravelComments\Models\Comment;
 use Illuminate\Database\Seeder;
 use Workbench\App\Models\Post;
@@ -16,7 +17,9 @@ use Workbench\App\Models\User;
  * migration, so a successful build is a successful install-and-use loop.
  *
  * The moderation loop follows: the guest comment arrives pending, a moderator
- * approves it by hand, and the approved scope is what decides the reading.
+ * approves it by hand, and the approved scope is what decides the reading. Then
+ * the reaction loop: react, react again to no effect, toggle back off, and be
+ * refused a reaction the allowlist does not carry.
  */
 final class DatabaseSeeder extends Seeder
 {
@@ -53,8 +56,9 @@ final class DatabaseSeeder extends Seeder
         }
 
         $this->moderate($post, $guest, $moderator);
+        $this->reactTo($comment, $author, $teammate);
 
-        $this->command?->info('Comments written, moderated, and read back through the relation. The demo loop works.');
+        $this->command?->info('Comments written, moderated, reacted to, and read back through the relation. The demo loop works.');
     }
 
     /**
@@ -82,5 +86,37 @@ final class DatabaseSeeder extends Seeder
         $this->command?->line($guest->approve(by: $moderator)
             ? '- approving twice moved something, which would be a bug'
             : '- approving an approved comment did nothing, as promised');
+    }
+
+    /**
+     * Reactions need an identity, so every one of these is a model. There is
+     * no guest path to demonstrate here because there is none to have.
+     */
+    private function reactTo(Comment $comment, User $author, User $teammate): void
+    {
+        $this->command?->info('Reactions:');
+
+        $comment->react('👍', by: $teammate);
+        $comment->react('👍', by: $teammate);   // The same tap twice: a no-op.
+        $comment->react('🎉', by: $author);
+
+        $this->command?->line('- after two taps of the same reaction: '.json_encode(
+            $comment->reactionSummary(),
+            JSON_UNESCAPED_UNICODE,
+        ));
+
+        $comment->toggleReaction('👍', by: $teammate);
+
+        $this->command?->line('- after toggling it back off: '.json_encode(
+            $comment->reactionSummary(),
+            JSON_UNESCAPED_UNICODE,
+        ));
+
+        try {
+            $comment->react('🦆', by: $author);
+            $this->command?->line('- an unlisted reaction was accepted, which would be a bug');
+        } catch (InvalidReactionException $e) {
+            $this->command?->line('- the allowlist refused an unlisted reaction: '.$e->getMessage());
+        }
     }
 }

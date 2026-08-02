@@ -1,0 +1,89 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/*
+ * Reactions attach to comments and to nothing else. The same two settings as
+ * the comments table apply: the table name comes from
+ * `config/comments.php`, and `comments.actor_key_type` decides the key type of
+ * the polymorphic reactor, exactly as it does for the commentator.
+ *
+ * There is no guest column here on purpose. Deduplication needs an identity,
+ * and a name and an email are not one.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create($this->table(), function (Blueprint $table) {
+            $table->id();
+
+            // Reactions are part of a comment, not a record beside it: force
+            // deleting the comment takes them with it.
+            $table->foreignId('comment_id')
+                ->constrained($this->commentsTable())
+                ->cascadeOnDelete();
+
+            // Who reacted: any Eloquent model, never a guest.
+            $this->reactorColumns($table);
+
+            // Short enough that the unique index below fits inside InnoDB's
+            // key limit even when reactor keys are strings. An emoji is a
+            // handful of bytes; a reaction key should be a word, not a
+            // sentence.
+            $table->string('reaction', 64);
+
+            $table->timestamps();
+
+            // One row per reactor per reaction per comment, enforced by the
+            // database rather than by a read-then-write the application could
+            // race.
+            $table->unique(
+                ['comment_id', 'reactor_type', 'reactor_id', 'reaction'],
+                'comment_reactions_unique',
+            );
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists($this->table());
+    }
+
+    private function table(): string
+    {
+        $table = config('comments.table_names.comment_reactions');
+
+        return is_string($table) && $table !== '' ? $table : 'comment_reactions';
+    }
+
+    private function commentsTable(): string
+    {
+        $table = config('comments.table_names.comments');
+
+        return is_string($table) && $table !== '' ? $table : 'comments';
+    }
+
+    private function reactorColumns(Blueprint $table): void
+    {
+        match (config('comments.actor_key_type', 'int')) {
+            'uuid' => $table->uuidMorphs('reactor'),
+            'ulid' => $table->ulidMorphs('reactor'),
+            'string' => $this->stringMorphs($table),
+            default => $table->morphs('reactor'),
+        };
+    }
+
+    /**
+     * The framework has no string-key morph helper, so this is the same shape
+     * `morphs()` builds with the id column as a plain string.
+     */
+    private function stringMorphs(Blueprint $table): void
+    {
+        $table->string('reactor_type');
+        $table->string('reactor_id');
+        $table->index(['reactor_type', 'reactor_id']);
+    }
+};

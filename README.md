@@ -122,9 +122,12 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   `approve()`, `reject()`, and `markAsSpam()`, a scope per status, a
   `DecidesCommentStatus` hook a commentable implements to choose the initial
   status, and configurable defaults. Guests start `pending` out of the box.
-- Reactions on comments: an allowlist of permitted reactions, react, unreact,
-  and toggle operations, one row per reactor per reaction, and an efficient
-  per-comment summary of reaction counts.
+- Reactions on comments: an allowlist of permitted reactions, `react()`,
+  `unreact()`, and `toggleReaction()`, one row per reactor per reaction
+  enforced by the database, `hasReactionFrom()` and `reactionsBy()` for
+  highlighting what an actor already pressed, a `reactions()` relation for the
+  rows themselves, and a `reactionSummary()` of counts whose `reactionCounts`
+  relation eager loads a whole thread's totals in one query.
 - Soft deletes with tombstones for threads, subtree removal on force delete,
   an `edited_at` timestamp, and a revision row recording the prior body and the
   editor on every body change.
@@ -157,7 +160,13 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   notification. Guests are never emailed: the package refuses to send mail to
   an unverified address it cannot offer an unsubscribe path for.
 - Reactions require an identified reactor. Guests cannot react, because
-  deduplication is impossible without an identity.
+  deduplication is impossible without an identity. Reacting twice with the
+  same reaction is a no-op rather than an error, and the database enforces the
+  same rule behind the engine.
+- A soft-deleted comment neither takes new reactions nor gives up the ones it
+  had: both `react()` and `unreact()` refuse. The tombstone is history for a
+  moderator to read, not a place to keep voting. Force deleting removes the
+  reactions with the comment.
 - Maximum thread depth is enforced when the reply is created. Existing threads
   are never reshaped by a config change.
 - Soft deleting a comment keeps its replies and works as the thread's

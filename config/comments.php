@@ -20,6 +20,7 @@ return [
 
     'table_names' => [
         'comments' => 'comments',
+        'comment_reactions' => 'comment_reactions',
     ],
 
     /*
@@ -88,5 +89,23 @@ return [
     'default_status' => 'approved',
 
     'guest_status' => 'pending',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Allowed reactions
+    |--------------------------------------------------------------------------
+    |
+    | Which reactions a comment accepts. Reacting with anything outside this
+    | list throws; set it to null to accept any non-empty string of up to 64
+    | characters, which is what the column holds.
+    |
+    | These are stored and compared as given. Emoji that can be written more
+    | than one way - a base character plus a variation selector, say - are two
+    | different reactions to the database, so list the exact form your
+    | interface sends.
+    |
+    */
+
+    'allowed_reactions' => ['👍', '👎', '❤️', '🎉', '😄', '😢'],
 
 ];

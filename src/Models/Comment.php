@@ -15,8 +15,12 @@ use ByRcsc\LaravelComments\Events\CommentModerated;
 use ByRcsc\LaravelComments\Events\CommentRejected;
 use ByRcsc\LaravelComments\Events\CommentRestored;
 use ByRcsc\LaravelComments\Events\CommentUpdated;
+use ByRcsc\LaravelComments\Events\ReactionAdded;
+use ByRcsc\LaravelComments\Events\ReactionRemoved;
 use ByRcsc\LaravelComments\Exceptions\BodyTooLongException;
+use ByRcsc\LaravelComments\Exceptions\CommentTrashedException;
 use ByRcsc\LaravelComments\Exceptions\ThreadTooDeepException;
+use ByRcsc\LaravelComments\Support\AllowedReactions;
 use ByRcsc\LaravelComments\Support\InitialStatus;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Illuminate\Database\Eloquent\Builder;
@@ -27,6 +31,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use LogicException;
 
@@ -66,6 +71,8 @@ use LogicException;
  * @property-read Model|null $commentator
  * @property-read Comment|null $parent
  * @property-read Collection<int, Comment> $replies
+ * @property-read Collection<int, CommentReaction> $reactions
+ * @property-read Collection<int, CommentReaction> $reactionCounts
  */
 final class Comment extends Model
 {
@@ -258,6 +265,166 @@ final class Comment extends Model
     }
 
     /**
+     * Every reaction row on this comment. `reactionSummary()` is what a
+     * listing wants; this is for the times you need the reactors themselves.
+     *
+     * @return HasMany<CommentReaction, $this>
+     */
+    public function reactions(): HasMany
+    {
+        return $this->hasMany(CommentReaction::class);
+    }
+
+    /**
+     * The counts, grouped in the database. Eager load it across a whole thread
+     * - `with('reactionCounts')` - and rendering every comment's reactions
+     * costs one query for the page rather than one per comment.
+     *
+     * The rows come back as partially hydrated reaction models carrying only
+     * the group key and its total; read them through `reactionSummary()`.
+     *
+     * @return HasMany<CommentReaction, $this>
+     */
+    public function reactionCounts(): HasMany
+    {
+        return $this->reactions()
+            ->select('comment_id', 'reaction')
+            ->selectRaw('count(*) as total')
+            ->groupBy('comment_id', 'reaction')
+            ->orderBy('reaction');
+    }
+
+    /**
+     * Reaction to count, in a stable order, for the reactions this comment
+     * actually has. A reaction nobody used is absent rather than zero.
+     *
+     * @return array<string, int>
+     */
+    public function reactionSummary(): array
+    {
+        $summary = [];
+
+        foreach ($this->reactionCounts as $row) {
+            /** @var mixed $total */
+            $total = $row->getAttribute('total');
+
+            // Drivers disagree about whether an aggregate comes back an int or
+            // a string, and neither is worth leaking to the caller.
+            $summary[$row->reaction] = is_numeric($total) ? (int) $total : 0;
+        }
+
+        return $summary;
+    }
+
+    /**
+     * React to this comment. Reacting again with the same reaction is a no-op
+     * that returns the existing row, so a double tap cannot inflate a count
+     * and callers need no guard of their own.
+     *
+     * There is no guest path here: deduplication needs an identity, and a name
+     * and an email are not one.
+     */
+    public function react(string $reaction, Model $by): CommentReaction
+    {
+        $this->guardReactionsWritable();
+
+        AllowedReactions::assert($reaction);
+
+        $existing = $this->findReaction($reaction, $by);
+
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        try {
+            $row = $this->reactions()->create([
+                'reactor_type' => $by->getMorphClass(),
+                'reactor_id' => $by->getKey(),
+                'reaction' => $reaction,
+            ]);
+        } catch (UniqueConstraintViolationException $e) {
+            // Another request got there between the check and the write. The
+            // index is what actually guarantees one row per reactor per
+            // reaction; this turns its verdict back into the promised no-op.
+            $this->forgetLoadedReactions();
+
+            return $this->findReaction($reaction, $by) ?? throw $e;
+        }
+
+        $this->forgetLoadedReactions();
+
+        event(new ReactionAdded($this, $by, $reaction));
+
+        return $row;
+    }
+
+    /**
+     * Take a reaction back. Returns whether there was one to take back, so a
+     * caller can tell a removal from a request that had already happened.
+     */
+    public function unreact(string $reaction, Model $by): bool
+    {
+        $this->guardReactionsWritable();
+
+        $existing = $this->findReaction($reaction, $by);
+
+        if ($existing === null) {
+            return false;
+        }
+
+        $existing->delete();
+
+        $this->forgetLoadedReactions();
+
+        event(new ReactionRemoved($this, $by, $reaction));
+
+        return true;
+    }
+
+    /**
+     * One tap in an interface, one call here. Returns whether the reactor now
+     * holds the reaction: true when it was added, false when it was removed.
+     */
+    public function toggleReaction(string $reaction, Model $by): bool
+    {
+        if ($this->unreact($reaction, $by)) {
+            return false;
+        }
+
+        $this->react($reaction, $by);
+
+        return true;
+    }
+
+    /**
+     * Whether this reactor has reacted at all, or with one reaction in
+     * particular - which is what highlights the buttons they already pressed.
+     */
+    public function hasReactionFrom(Model $reactor, ?string $reaction = null): bool
+    {
+        if ($reaction !== null) {
+            return $this->findReaction($reaction, $reactor) !== null;
+        }
+
+        return $this->reactionsFrom($reactor)->isNotEmpty();
+    }
+
+    /**
+     * Which reactions this reactor left, as plain strings, in a stable order.
+     *
+     * @return list<string>
+     */
+    public function reactionsBy(Model $reactor): array
+    {
+        return array_values(
+            $this->reactionsFrom($reactor)
+                ->map(fn (CommentReaction $row): string => $row->reaction)
+                ->sort()
+                ->all()
+        );
+    }
+
+    /**
      * Reply to this comment as a commentator model.
      */
     public function reply(string $body, Model $by): self
@@ -325,6 +492,68 @@ final class Comment extends Model
         event($event);
 
         return true;
+    }
+
+    /**
+     * Both directions are gated, not only adding: a tombstone keeps the
+     * reactions it already had, for the moderator who has to judge what
+     * happened, and one that can be quietly emptied is not that. Reading is
+     * never gated.
+     */
+    private function guardReactionsWritable(): void
+    {
+        if (! $this->exists) {
+            throw new LogicException('Cannot change reactions on an unsaved comment. Persist it first.');
+        }
+
+        if ($this->trashed()) {
+            throw CommentTrashedException::cannotChangeReactions($this);
+        }
+    }
+
+    /**
+     * This reactor's rows on this comment. The one place that decides between
+     * a loaded relation and a query, so every lookup gets the same answer for
+     * the same state.
+     *
+     * @return Collection<int, CommentReaction>
+     */
+    private function reactionsFrom(Model $reactor): Collection
+    {
+        if ($this->relationLoaded('reactions')) {
+            return $this->reactions
+                ->filter(fn (CommentReaction $row): bool => $row->isBy($reactor))
+                ->values();
+        }
+
+        return $this->reactionsQueryFor($reactor)->get();
+    }
+
+    private function findReaction(string $reaction, Model $reactor): ?CommentReaction
+    {
+        return $this->reactionsFrom($reactor)
+            ->first(fn (CommentReaction $row): bool => $row->reaction === $reaction);
+    }
+
+    /**
+     * @return HasMany<CommentReaction, $this>
+     */
+    private function reactionsQueryFor(Model $reactor): HasMany
+    {
+        return $this->reactions()
+            ->where('reactor_type', $reactor->getMorphClass())
+            ->where('reactor_id', $reactor->getKey());
+    }
+
+    /**
+     * A loaded relation is a snapshot, and this comment just changed what it
+     * is a snapshot of. Dropping it keeps the next read honest rather than
+     * leaving a stale count behind a write that succeeded.
+     */
+    private function forgetLoadedReactions(): void
+    {
+        $this->unsetRelation('reactions');
+        $this->unsetRelation('reactionCounts');
     }
 
     /**
