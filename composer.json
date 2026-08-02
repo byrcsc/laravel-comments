@@ -1,0 +1,88 @@
+{
+    "name": "byrcsc/laravel-comments",
+    "description": "Threaded comments for Eloquent models: polymorphic commentators with guest support, moderation statuses, reactions, edit revisions, attachments, pinning, and a full set of lifecycle events.",
+    "keywords": [
+        "laravel",
+        "comments",
+        "commentable",
+        "threads",
+        "replies",
+        "eloquent",
+        "moderation",
+        "reactions",
+        "guest-comments"
+    ],
+    "homepage": "https://github.com/byrcsc/laravel-comments",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Ryan Catapang",
+            "email": "ryan@ryancatapang.com",
+            "role": "Full-Stack Engineer"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "illuminate/contracts": "^12.0||^13.0",
+        "illuminate/database": "^12.0||^13.0",
+        "illuminate/events": "^12.0||^13.0",
+        "illuminate/support": "^12.0||^13.0",
+        "spatie/laravel-package-tools": "^1.16"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.3.1",
+        "laravel/pint": "^1.14",
+        "nunomaduro/collision": "^8.8",
+        "orchestra/testbench": "^10.0||^11.0",
+        "pestphp/pest": "^4.0",
+        "pestphp/pest-plugin-arch": "^4.0",
+        "pestphp/pest-plugin-laravel": "^4.0",
+        "phpstan/extension-installer": "^1.4",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "phpstan/phpstan-phpunit": "^2.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "ByRcsc\\LaravelComments\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "ByRcsc\\LaravelComments\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Factories\\": "workbench/database/factories/",
+            "Workbench\\Database\\Seeders\\": "workbench/database/seeders/"
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": "@composer run prepare",
+        "prepare": "@php vendor/bin/testbench package:discover --ansi",
+        "analyse": "vendor/bin/phpstan analyse",
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage",
+        "format": "vendor/bin/pint",
+        "build": "@php vendor/bin/testbench workbench:build --ansi",
+        "clear": "@php vendor/bin/testbench package:purge-skeleton --ansi"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "phpstan/extension-installer": true
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "ByRcsc\\LaravelComments\\CommentsServiceProvider"
+            ]
+        }
+    },
+    "support": {
+        "issues": "https://github.com/byrcsc/laravel-comments/issues",
+        "forum": "https://github.com/byrcsc/laravel-comments/discussions",
+        "docs": "https://github.com/byrcsc/laravel-comments#readme",
+        "security": "https://github.com/byrcsc/laravel-comments/security/policy",
+        "source": "https://github.com/byrcsc/laravel-comments"
+    }
+}

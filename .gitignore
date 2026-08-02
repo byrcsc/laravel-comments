@@ -1,0 +1,53 @@
+# Composer Related
+composer.lock
+/vendor
+
+# Frontend Assets
+/node_modules
+
+# Logs
+npm-debug.log
+yarn-error.log
+
+# Caches
+.phpunit.cache
+.phpunit.result.cache
+.pint.cache
+/build
+
+# IDE Helper
+_ide_helper.php
+_ide_helper_models.php
+.phpstorm.meta.php
+
+# Editors
+/.idea
+/.fleet
+/.vscode
+
+# Scratch
+/.scratch
+/issues
+
+# Misc
+phpunit.xml
+phpstan.neon
+/coverage
+
+# Workbench demo app runtime artifacts
+/workbench/database/database.sqlite
+/workbench/database/database.sqlite-shm
+/workbench/database/database.sqlite-wal
+/workbench/database/migrations/*_create_comments_table.php
+
+
+# Secrets
+.env
+.env.*
+
+# The workbench demo app's environment file is checked in on purpose; see the
+# comments inside it.
+!/workbench/.env
+
+# macOS
+.DS_Store

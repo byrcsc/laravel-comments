@@ -1,0 +1,92 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/*
+ * Two things to change before you migrate:
+ *
+ *  - The table name. Set it in `config/comments.php`, not here; the models
+ *    read the same config, so renaming in one place is all it takes.
+ *
+ *  - The key type of the polymorphic identity columns. Set
+ *    `comments.actor_key_type` to int, uuid, ulid, or string before
+ *    migrating; it covers the commentator here and the reactor on reactions.
+ *    The commentable columns are independent (see the note there), so change
+ *    `commentable_id` directly when commentable models do not use integers.
+ *
+ * `status` is a plain string rather than a database enum, so adding a case is
+ * a package upgrade rather than an ALTER TABLE.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create($this->table(), function (Blueprint $table) {
+            $table->id();
+
+            // The record being commented on. Adjust `commentable_id` when
+            // your commentable models use uuid, ulid, or string keys.
+            $table->morphs('commentable');
+
+            // Who wrote it: any Eloquent model, or null for a guest. A guest
+            // carries a name and an email instead; both are stored as given
+            // and are untrusted input, exactly like the body.
+            $this->commentatorColumns($table);
+            $table->string('guest_name')->nullable();
+            $table->string('guest_email')->nullable();
+
+            // Self-reference for threads. The database removes a comment's
+            // whole reply subtree on force delete through this key.
+            $table->foreignId('parent_id')
+                ->nullable()
+                ->constrained($this->table())
+                ->cascadeOnDelete();
+
+            // Stored verbatim: no sanitization, no markdown, no rendering.
+            // Escape or render on output in your application.
+            $table->text('body');
+
+            $table->string('status')->default('approved');
+            $table->timestamp('edited_at')->nullable();
+            $table->timestamp('pinned_at')->nullable();
+
+            $table->softDeletes();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists($this->table());
+    }
+
+    private function table(): string
+    {
+        $table = config('comments.table_names.comments');
+
+        return is_string($table) && $table !== '' ? $table : 'comments';
+    }
+
+    private function commentatorColumns(Blueprint $table): void
+    {
+        match (config('comments.actor_key_type', 'int')) {
+            'uuid' => $table->nullableUuidMorphs('commentator'),
+            'ulid' => $table->nullableUlidMorphs('commentator'),
+            'string' => $this->stringMorphs($table),
+            default => $table->nullableMorphs('commentator'),
+        };
+    }
+
+    /**
+     * The framework has no string-key morph helper, so this is the same shape
+     * `nullableMorphs()` builds with the id column as a plain string.
+     */
+    private function stringMorphs(Blueprint $table): void
+    {
+        $table->string('commentator_type')->nullable();
+        $table->string('commentator_id')->nullable();
+        $table->index(['commentator_type', 'commentator_id']);
+    }
+};
