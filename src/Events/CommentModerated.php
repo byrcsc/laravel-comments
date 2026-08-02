@@ -13,9 +13,10 @@ use Illuminate\Database\Eloquent\Model;
  * means one real state change - which is what counts and notifications
  * downstream are built on.
  *
- * The three transitions are dispatched under their own class names, because
- * Laravel's dispatcher resolves listeners by interface but never by parent
- * class. This base is what a handler that treats them alike can type-hint:
+ * Each transition is dispatched under its own class name, because Laravel's
+ * dispatcher resolves listeners by interface but never by parent class - true
+ * of Laravel 12 and 13; recheck when raising the supported range. This base is
+ * what a handler that treats them alike can type-hint:
  *
  *     Event::listen(
  *         [CommentApproved::class, CommentRejected::class, CommentMarkedAsSpam::class],

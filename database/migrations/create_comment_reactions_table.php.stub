@@ -29,10 +29,11 @@ return new class extends Migration
             // Who reacted: any Eloquent model, never a guest.
             $this->reactorColumns($table);
 
-            // Short enough that the unique index below fits inside InnoDB's
-            // key limit even when reactor keys are strings. An emoji is a
-            // handful of bytes; a reaction key should be a word, not a
-            // sentence.
+            // Kept short so the unique index below fits inside InnoDB's key
+            // limit even when reactor keys are strings. An emoji is a handful
+            // of bytes; a reaction key should be a word, not a sentence.
+            // AllowedReactions::MAX_LENGTH refuses anything longer in PHP and
+            // has to match this width.
             $table->string('reaction', 64);
 
             $table->timestamps();
@@ -77,8 +78,9 @@ return new class extends Migration
     }
 
     /**
-     * The framework has no string-key morph helper, so this is the same shape
-     * `morphs()` builds with the id column as a plain string.
+     * The same shape `morphs()` builds, with the id column as a plain string.
+     * Laravel 12 and 13 ship no string-key morph helper; remove this once the
+     * lowest supported Laravel version has one.
      */
     private function stringMorphs(Blueprint $table): void
     {

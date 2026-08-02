@@ -110,7 +110,8 @@ describe('body length limit', function (): void {
     it('allows a body exactly at the limit, counting multibyte characters as one', function (): void {
         config()->set('comments.max_length', 4);
 
-        // Four characters, five bytes: a byte-counting limit would reject it.
+        // The é is one character but two bytes, so a limit that counted bytes
+        // would reject a body that sits exactly on it.
         $comment = post()->comment('héll', by: user());
 
         expect($comment->refresh()->body)->toBe('héll');

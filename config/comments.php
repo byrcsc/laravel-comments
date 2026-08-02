@@ -97,8 +97,8 @@ return [
     |--------------------------------------------------------------------------
     |
     | Which reactions a comment accepts. Reacting with anything outside this
-    | list throws; set it to null to accept any non-empty string of up to 64
-    | characters, which is what the column holds.
+    | list throws; set it to null to accept any non-empty string that fits the
+    | `reaction` column - see AllowedReactions::MAX_LENGTH for that ceiling.
     |
     | These are stored and compared as given. Emoji that can be written more
     | than one way - a base character plus a variation selector, say - are two

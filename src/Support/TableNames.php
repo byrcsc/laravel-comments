@@ -29,8 +29,10 @@ final class TableNames
     }
 
     /**
-     * The fallback covers a published config written against an older version
-     * of the package, with no entry for a table added since.
+     * The fallback is for callers that run without a config repository at all
+     * - a migration executed outside the container, a model touched before the
+     * app boots. Inside a booted app it never fires: the service provider
+     * refuses to boot on a missing or blank table name.
      */
     public static function for(string $key): string
     {

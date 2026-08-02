@@ -152,7 +152,9 @@ final class Comment extends Model
      * firing the plain `updated` event as soon as a mapped event's listener
      * returns anything at all, which would take the revision with it; and a
      * re-moderation listener needs the revision already filed, because the
-     * body it is judging against is what the revision holds.
+     * body it is judging against is what the revision holds. That first reason
+     * is Eloquent internals, verified against Laravel 12 and 13 - recheck it
+     * when raising the supported range.
      */
     protected static function booted(): void
     {
@@ -640,7 +642,8 @@ final class Comment extends Model
         // Eloquent syncs the original attributes only once the whole save
         // finishes, so until then the body still looks dirty. A listener that
         // saves the comment again - the re-moderation pattern does exactly
-        // that - would otherwise file this same edit a second time.
+        // that - would otherwise file this same edit a second time. Internals,
+        // verified against Laravel 12 and 13; recheck when raising the range.
         $this->syncOriginalAttribute('body');
 
         $this->revisions()->create([

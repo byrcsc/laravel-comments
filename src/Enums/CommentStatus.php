@@ -24,7 +24,7 @@ enum CommentStatus: string
     case Spam = 'spam';
 
     /**
-     * The four values as strings, for the validation rule a form request needs
+     * Every status as a string, for the validation rule a form request needs
      * and for error messages that should name what was allowed.
      *
      * @return list<string>

@@ -19,8 +19,9 @@ use ByRcsc\LaravelComments\Exceptions\InvalidReactionException;
 final class AllowedReactions
 {
     /**
-     * What the column holds. Enforced even with the allowlist disabled: a
-     * truncated reaction would silently become a different one.
+     * What the `reaction` column holds; change this and the column width in
+     * the reactions migration together. Enforced even with the allowlist
+     * disabled: a truncated reaction would silently become a different one.
      */
     public const MAX_LENGTH = 64;
 

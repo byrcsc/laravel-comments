@@ -34,7 +34,6 @@ final class DatabaseSeeder extends Seeder
 
         $post = Post::factory()->create(['title' => 'Announcing laravel-comments']);
 
-        // Write.
         $comment = $post->comment('Great write-up!', by: $author);
         $comment->reply('Agreed, especially the last section.', by: $teammate);
         $guest = $post->commentAsGuest(

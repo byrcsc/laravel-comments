@@ -73,8 +73,9 @@ return new class extends Migration
     }
 
     /**
-     * The framework has no string-key morph helper, so this is the same shape
-     * `nullableMorphs()` builds with the id column as a plain string.
+     * The same shape `nullableMorphs()` builds, with the id column as a plain
+     * string. Laravel 12 and 13 ship no string-key morph helper; remove this
+     * once the lowest supported Laravel version has one.
      */
     private function stringMorphs(Blueprint $table): void
     {

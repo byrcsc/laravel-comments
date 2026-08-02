@@ -57,7 +57,7 @@ function commentInStatus(CommentStatus $status): Comment
 
 /**
  * One comment per status on one commentable, keyed by status value, so a
- * query under test has both a row to find and three it must leave alone.
+ * scope under test has both a row to find and rows it must leave alone.
  *
  * @return array<string, Comment>
  */

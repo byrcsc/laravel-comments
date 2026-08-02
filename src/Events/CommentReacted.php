@@ -15,10 +15,11 @@ use Illuminate\Database\Eloquent\Model;
  * The reactor is always a model: there is no guest path to react through. The
  * reaction is the string as stored, which is the string your interface sent.
  *
- * Like every other transition here, the two are dispatched under their own
- * class names - Laravel's dispatcher resolves listeners by interface but never
- * by parent class - and this base is what a handler treating them alike can
- * type-hint.
+ * Like every other transition here, each is dispatched under its own class
+ * name - Laravel's dispatcher resolves listeners by interface but never by
+ * parent class - and this base is what a handler treating them alike can
+ * type-hint. See CommentModerated for the version that behavior was checked
+ * against.
  */
 abstract class CommentReacted extends CommentEvent
 {
