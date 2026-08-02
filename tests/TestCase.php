@@ -118,13 +118,14 @@ abstract class TestCase extends Orchestra
     /**
      * Loading the real stubs is the point: a suite that builds its own schema
      * proves nothing about the one that ships. Order matters - the reaction
-     * table's foreign key needs the comments table to exist.
+     * and revision tables' foreign keys need the comments table to exist.
      */
     protected function runPackageMigrations(): void
     {
         $migrations = [
             'create_comments_table',
             'create_comment_reactions_table',
+            'create_comment_revisions_table',
         ];
 
         foreach ($migrations as $name) {

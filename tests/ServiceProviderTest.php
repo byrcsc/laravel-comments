@@ -15,6 +15,7 @@ it('loads the config with its documented defaults', function (): void {
         ->and(config('comments.default_status'))->toBe('approved')
         ->and(config('comments.guest_status'))->toBe('pending')
         ->and(config('comments.table_names.comment_reactions'))->toBe('comment_reactions')
+        ->and(config('comments.table_names.comment_revisions'))->toBe('comment_revisions')
         ->and(config('comments.allowed_reactions'))->toBeArray();
 });
 
@@ -83,6 +84,7 @@ it('honors a renamed comments table', function (): void {
     $this->rebootWith(['comments.table_names' => [
         'comments' => 'discussion_entries',
         'comment_reactions' => 'discussion_entry_reactions',
+        'comment_revisions' => 'discussion_entry_revisions',
     ]]);
 
     $comment = post()->comment('On a renamed table', by: user());

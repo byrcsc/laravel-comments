@@ -21,6 +21,7 @@ return [
     'table_names' => [
         'comments' => 'comments',
         'comment_reactions' => 'comment_reactions',
+        'comment_revisions' => 'comment_revisions',
     ],
 
     /*

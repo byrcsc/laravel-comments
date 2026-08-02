@@ -52,6 +52,11 @@ use LogicException;
  * matching scopes read it, but what a visitor sees is decided by the
  * application's own queries.
  *
+ * Editing the body stamps `edited_at` and files a revision holding what it
+ * said before. That happens through Eloquent's model events, so it covers
+ * `edit()`, `update()`, and a plain attribute save alike - and nothing that
+ * goes around them.
+ *
  * @property int $id
  * @property string $commentable_type
  * @property int|string $commentable_id
@@ -73,6 +78,7 @@ use LogicException;
  * @property-read Collection<int, Comment> $replies
  * @property-read Collection<int, CommentReaction> $reactions
  * @property-read Collection<int, CommentReaction> $reactionCounts
+ * @property-read Collection<int, CommentRevision> $revisions
  */
 final class Comment extends Model
 {
@@ -84,11 +90,24 @@ final class Comment extends Model
     protected $guarded = [];
 
     /**
+     * The body as it stood before the edit currently being saved, carried from
+     * `updating` (where the original is still readable) to `updated` (where
+     * the write is known to have landed). Null between saves.
+     */
+    private ?string $bodyBeforeEdit = null;
+
+    /**
+     * Who the caller said is making the current edit, for the same hop. Only
+     * `edit()` sets it: a plain attribute save names nobody, and the package
+     * will not guess at an authenticated user on its behalf.
+     */
+    private ?Model $pendingEditor = null;
+
+    /**
      * @var array<string, class-string>
      */
     protected $dispatchesEvents = [
         'created' => CommentCreated::class,
-        'updated' => CommentUpdated::class,
         'deleted' => CommentDeleted::class,
         'restored' => CommentRestored::class,
         'forceDeleted' => CommentForceDeleted::class,
@@ -120,6 +139,20 @@ final class Comment extends Model
      * The limits hold on `creating` so every write path - the trait, the
      * reply API, factories - passes through the same gate, and the initial
      * status is resolved there for the same reason.
+     *
+     * Edit tracking rides the update events for the same reason, and takes
+     * two of them: `updating` is where the previous body is still readable and
+     * where `edited_at` can join the same statement, and `updated` is where
+     * the write is known to have landed and the revision is safe to write.
+     * Anything that skips model events - `saveQuietly()`, the query builder,
+     * raw SQL - skips this too, which the README states plainly.
+     *
+     * `CommentUpdated` is dispatched from here rather than through
+     * `$dispatchesEvents` for two reasons, and both matter. Eloquent stops
+     * firing the plain `updated` event as soon as a mapped event's listener
+     * returns anything at all, which would take the revision with it; and a
+     * re-moderation listener needs the revision already filed, because the
+     * body it is judging against is what the revision holds.
      */
     protected static function booted(): void
     {
@@ -127,6 +160,16 @@ final class Comment extends Model
             $comment->guardBodyLength();
             $comment->guardDepth();
             $comment->resolveInitialStatus();
+        });
+
+        self::updating(function (self $comment): void {
+            $comment->trackBodyEdit();
+        });
+
+        self::updated(function (self $comment): void {
+            $comment->recordRevision();
+
+            event(new CommentUpdated($comment));
         });
     }
 
@@ -262,6 +305,48 @@ final class Comment extends Model
             CommentStatus::Spam,
             new CommentMarkedAsSpam($this, $by),
         );
+    }
+
+    /**
+     * What this comment said before each edit, oldest first. Every body change
+     * leaves one, whether it went through `edit()` or through a plain
+     * attribute save.
+     *
+     * @return HasMany<CommentRevision, $this>
+     */
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(CommentRevision::class)->oldest('id');
+    }
+
+    /**
+     * Change the body, recording who did it.
+     *
+     * The revision is written either way; this is how the editor gets named.
+     * A plain `$comment->update(['body' => ...])` records the same history
+     * with a null editor, because the package will not invent an actor.
+     *
+     * Returns whether anything was saved: editing a comment to the body it
+     * already has writes nothing and records nothing.
+     */
+    public function edit(string $body, ?Model $by = null): bool
+    {
+        if (! $this->exists) {
+            throw new LogicException('Cannot edit an unsaved comment. Persist it first.');
+        }
+
+        if ($this->body === $body) {
+            return false;
+        }
+
+        $this->pendingEditor = $by;
+        $this->body = $body;
+
+        try {
+            return $this->save();
+        } finally {
+            $this->pendingEditor = null;
+        }
     }
 
     /**
@@ -492,6 +577,79 @@ final class Comment extends Model
         event($event);
 
         return true;
+    }
+
+    /**
+     * A body change, and only a body change, is gated, stamps `edited_at`, and
+     * earns a revision. Moving the status, pinning, restoring, and every other
+     * update leave all three alone: they change what the package knows about
+     * the comment, not what its author wrote.
+     *
+     * The length limit is re-checked here so an edit cannot do what a write
+     * was refused, and a tombstone is refused outright: a comment kept as
+     * history that can still be rewritten is not history.
+     */
+    private function trackBodyEdit(): void
+    {
+        if (! $this->isDirty('body')) {
+            $this->bodyBeforeEdit = null;
+
+            return;
+        }
+
+        if ($this->trashed()) {
+            throw CommentTrashedException::cannotEdit($this);
+        }
+
+        $this->guardBodyLength();
+
+        /** @var mixed $original */
+        $original = $this->getOriginal('body');
+
+        if (! is_string($original)) {
+            // The body was never loaded, so there is nothing truthful to file.
+            // Recording an empty prior body would be worse than refusing: the
+            // one job of a revision is to say what the comment used to hold.
+            throw new LogicException(
+                'Cannot edit the body of a comment loaded without it. Select the body column, or reload the comment first.'
+            );
+        }
+
+        $this->bodyBeforeEdit = $original;
+
+        // Set here rather than in `updated` so it rides the same statement:
+        // a second write would fire a second round of these events.
+        $this->edited_at = $this->freshTimestamp();
+    }
+
+    /**
+     * Written from `updated` rather than `updating`, so a halted or failed
+     * save leaves no revision behind for an edit the table never took.
+     */
+    private function recordRevision(): void
+    {
+        if ($this->bodyBeforeEdit === null) {
+            return;
+        }
+
+        $body = $this->bodyBeforeEdit;
+        $editor = $this->pendingEditor;
+
+        $this->bodyBeforeEdit = null;
+
+        // Eloquent syncs the original attributes only once the whole save
+        // finishes, so until then the body still looks dirty. A listener that
+        // saves the comment again - the re-moderation pattern does exactly
+        // that - would otherwise file this same edit a second time.
+        $this->syncOriginalAttribute('body');
+
+        $this->revisions()->create([
+            'body' => $body,
+            'editor_type' => $editor?->getMorphClass(),
+            'editor_id' => $editor?->getKey(),
+        ]);
+
+        $this->unsetRelation('revisions');
     }
 
     /**

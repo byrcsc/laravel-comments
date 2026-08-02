@@ -88,3 +88,46 @@ it('supports ulid reactor keys', function (): void {
     expect($comment->reactions()->sole()->reactor_id)->toBe($reactor->getKey())
         ->and($comment->hasReactionFrom($reactor, '👍'))->toBeTrue();
 });
+
+/*
+ * And the editor on a revision, the third identity the one setting covers.
+ */
+
+it('supports uuid editor keys', function (): void {
+    $this->rebootWith(['comments.actor_key_type' => 'uuid']);
+
+    $editor = UuidUser::create(['name' => 'Grace Hopper']);
+    $comment = post()->commentAsGuest('First draft', name: 'Jane', email: 'jane@example.com');
+
+    $comment->edit('Second draft', by: $editor);
+
+    $revision = $comment->revisions()->sole();
+
+    expect($revision->editor_id)->toBe($editor->getKey())
+        ->and($revision->editor)->toBeInstanceOf(UuidUser::class);
+});
+
+it('supports plain string editor keys', function (): void {
+    $this->rebootWith(['comments.actor_key_type' => 'string']);
+
+    $editor = StringUser::create(['id' => 'employee:7', 'name' => 'Mary Jackson']);
+    $comment = post()->commentAsGuest('First draft', name: 'Jane', email: 'jane@example.com');
+
+    $comment->edit('Second draft', by: $editor);
+
+    $revision = $comment->revisions()->sole();
+
+    expect($revision->editor_id)->toBe('employee:7')
+        ->and($revision->editor)->toBeInstanceOf(StringUser::class);
+});
+
+it('supports ulid editor keys', function (): void {
+    $this->rebootWith(['comments.actor_key_type' => 'ulid']);
+
+    $editor = UlidUser::create(['name' => 'Annie Easley']);
+    $comment = post()->commentAsGuest('First draft', name: 'Jane', email: 'jane@example.com');
+
+    $comment->edit('Second draft', by: $editor);
+
+    expect($comment->revisions()->sole()->editor_id)->toBe($editor->getKey());
+});

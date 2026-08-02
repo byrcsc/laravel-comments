@@ -129,8 +129,9 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   rows themselves, and a `reactionSummary()` of counts whose `reactionCounts`
   relation eager loads a whole thread's totals in one query.
 - Soft deletes with tombstones for threads, subtree removal on force delete,
-  an `edited_at` timestamp, and a revision row recording the prior body and the
-  editor on every body change.
+  an `edited_at` timestamp, and a `revisions()` relation of rows recording the
+  prior body and the editor on every body change. `edit()` names the editor;
+  any other body write records the same revision with a null one.
 - Attachments as metadata rows (disk, path, name, MIME type, size) the
   application stored itself, plus `attachImage()` sugar built on Laravel's
   `Image` facade when `intervention/image` is installed.
@@ -172,9 +173,21 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Soft deleting a comment keeps its replies and works as the thread's
   tombstone. Force deleting removes the whole subtree through the foreign key.
 - Revisions and the `edited_at` timestamp are recorded through Eloquent model
-  events. Revision rows are ordinary rows: there is no hash chain and no
-  tamper evidence here. If you need a verifiable history, that is what
+  events, so `edit()`, `update()`, and a plain attribute save all leave the
+  same trace, and `saveQuietly()`, the query builder, and raw SQL leave none.
+  Only a body change counts: a status transition or a pin touches neither.
+  A body change also goes through the same length limit a new comment does,
+  and a soft-deleted comment refuses one: rewriting a tombstone would leave
+  the moderator reading history that had been edited under them.
+  Revision rows are ordinary rows, append-only by convention rather than by
+  proof: there is no hash chain and no tamper evidence here. If you need a
+  verifiable history, that is what
   [byrcsc/laravel-approval](https://github.com/byrcsc/laravel-approval) is for.
+- The package never re-moderates an edited comment. `CommentUpdated` plus
+  `wasChanged('body')` is the hook for sending one back to `pending`, because
+  only your application can tell a fixed typo from an approved comment edited
+  into an advert. The event fires after the revision is filed, so the listener
+  has the previous body to judge against.
 - Denormalized counts include approved, non-deleted comments only, and are
   maintained through model events. Query-builder updates, upserts, quiet
   saves, and raw SQL bypass model events; `comments:recount` is the backstop.

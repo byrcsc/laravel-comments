@@ -9,6 +9,7 @@ use ByRcsc\LaravelComments\Models\Comment;
 use Illuminate\Database\Seeder;
 use Workbench\App\Models\Post;
 use Workbench\App\Models\User;
+use Workbench\App\Providers\WorkbenchServiceProvider;
 
 /**
  * The README quick start, run for real: write a comment, reply to it, add a
@@ -19,7 +20,9 @@ use Workbench\App\Models\User;
  * The moderation loop follows: the guest comment arrives pending, a moderator
  * approves it by hand, and the approved scope is what decides the reading. Then
  * the reaction loop: react, react again to no effect, toggle back off, and be
- * refused a reaction the allowlist does not carry.
+ * refused a reaction the allowlist does not carry. Last, the edit loop: an
+ * edit files a revision, stamps edited_at, and - through this app's own
+ * listener, not the package's - sends the approved comment back to pending.
  */
 final class DatabaseSeeder extends Seeder
 {
@@ -57,8 +60,9 @@ final class DatabaseSeeder extends Seeder
 
         $this->moderate($post, $guest, $moderator);
         $this->reactTo($comment, $author, $teammate);
+        $this->edit($comment, $author);
 
-        $this->command?->info('Comments written, moderated, reacted to, and read back through the relation. The demo loop works.');
+        $this->command?->info('Comments written, moderated, reacted to, edited, and read back through the relation. The demo loop works.');
     }
 
     /**
@@ -118,5 +122,35 @@ final class DatabaseSeeder extends Seeder
         } catch (InvalidReactionException $e) {
             $this->command?->line('- the allowlist refused an unlisted reaction: '.$e->getMessage());
         }
+    }
+
+    /**
+     * The edit trail, and the one listener this app adds on top of it: an
+     * approved comment that gets edited goes back into the queue. The package
+     * files the revision; deciding what an edit means is the app's call.
+     *
+     * @see WorkbenchServiceProvider
+     */
+    private function edit(Comment $comment, User $author): void
+    {
+        $this->command?->info('Edits and revisions:');
+        $this->command?->line("- before: \"{$comment->body}\" [{$comment->status->value}]");
+
+        $comment->edit('Great write-up, especially the benchmarks!', by: $author);
+
+        $comment->refresh();
+
+        $this->command?->line("- after: \"{$comment->body}\" [{$comment->status->value}]");
+        $this->command?->line('- edited_at: '.($comment->edited_at?->toDateTimeString() ?? 'never'));
+
+        foreach ($comment->revisions as $revision) {
+            $editor = $revision->editor?->getAttribute('name') ?? 'nobody named';
+            $this->command?->line("- revision by {$editor}: \"{$revision->body}\"");
+        }
+
+        // A status change is not an edit: no revision, and edited_at stands.
+        $comment->approve(by: $author);
+
+        $this->command?->line('- after re-approving, revisions still number '.$comment->revisions()->count());
     }
 }

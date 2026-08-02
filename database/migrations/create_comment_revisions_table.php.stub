@@ -1,0 +1,85 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/*
+ * What a comment said before it was edited. The same two settings as the
+ * comments table apply: the table name comes from `config/comments.php`, and
+ * `comments.actor_key_type` decides the key type of the polymorphic editor.
+ *
+ * These are ordinary rows. There is no hash chain and no tamper evidence here;
+ * an application needing a verifiable history wants byrcsc/laravel-approval.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create($this->table(), function (Blueprint $table) {
+            $table->id();
+
+            // History is part of a comment, not a record beside it: force
+            // deleting the comment takes it with them. Soft deleting keeps
+            // them, which is the whole point of a tombstone.
+            $table->foreignId('comment_id')
+                ->constrained($this->commentsTable())
+                ->cascadeOnDelete();
+
+            // Who made the edit, when anyone told us. Null is ordinary: a
+            // console command, a queued job, and a plain attribute save all
+            // change a body with no actor to name.
+            $this->editorColumns($table);
+
+            // The body as it stood before this edit, stored verbatim like the
+            // comment's own. Read it as untrusted input.
+            $table->text('body');
+
+            // Created only: an append-only row has no second timestamp to
+            // keep honest.
+            $table->timestamp('created_at')->nullable();
+
+            $table->index(['comment_id', 'id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists($this->table());
+    }
+
+    private function table(): string
+    {
+        $table = config('comments.table_names.comment_revisions');
+
+        return is_string($table) && $table !== '' ? $table : 'comment_revisions';
+    }
+
+    private function commentsTable(): string
+    {
+        $table = config('comments.table_names.comments');
+
+        return is_string($table) && $table !== '' ? $table : 'comments';
+    }
+
+    private function editorColumns(Blueprint $table): void
+    {
+        match (config('comments.actor_key_type', 'int')) {
+            'uuid' => $table->nullableUuidMorphs('editor'),
+            'ulid' => $table->nullableUlidMorphs('editor'),
+            'string' => $this->stringMorphs($table),
+            default => $table->nullableMorphs('editor'),
+        };
+    }
+
+    /**
+     * The framework has no string-key morph helper, so this is the same shape
+     * `nullableMorphs()` builds with the id column as a plain string.
+     */
+    private function stringMorphs(Blueprint $table): void
+    {
+        $table->string('editor_type')->nullable();
+        $table->string('editor_id')->nullable();
+        $table->index(['editor_type', 'editor_id']);
+    }
+};

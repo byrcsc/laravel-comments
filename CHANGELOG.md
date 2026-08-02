@@ -40,3 +40,12 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
 - `ReactionAdded` and `ReactionRemoved` events, over the shared
   `CommentReacted` base.
 - `InvalidReactionException` and `CommentTrashedException`.
+- Revisions: `comment_revisions` table with cascade on delete, automatic
+  recording of the prior body and `edited_at` on every body change, `edit()`
+  for naming the editor, a `revisions()` relation, and the `CommentRevision`
+  model, which refuses updates.
+- `RevisionIsAppendOnlyException`.
+- Body writes now share one gate: an edit re-checks `comments.max_length` and
+  refuses a soft-deleted comment.
+- `CommentUpdated` is dispatched after the revision is recorded, so a
+  re-moderation listener has the previous body to compare against.

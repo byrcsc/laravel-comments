@@ -23,6 +23,7 @@ final class CommentsServiceProvider extends PackageServiceProvider
             ->hasMigrations(
                 'create_comments_table',
                 'create_comment_reactions_table',
+                'create_comment_revisions_table',
             );
     }
 

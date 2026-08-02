@@ -19,7 +19,9 @@ moderation loop: the guest comment arrives pending, the hook on `Post` holds a
 comment carrying a link, a moderator approves and marks spam by hand, and the
 `approved()` scope decides both readings. Then the reaction loop: react, react
 again to no effect, toggle back off, and get refused a reaction the allowlist
-does not carry.
+does not carry. Last the edit loop: an edit files a revision, stamps
+`edited_at`, and - through this app's own listener, not the package's - sends
+the approved comment back to pending.
 
 To poke at the result by hand:
 
@@ -81,6 +83,26 @@ $post->comments()->with('reactionCounts')->get()
     ->map(fn ($c) => $c->reactionSummary());
 ```
 
+Edits and revisions by hand:
+
+```php
+$comment->edit('Second draft', by: $moderator);
+$comment->edited_at;                        // stamped
+$comment->revisions->pluck('body');         // ['First draft']
+$comment->revisions->first()->editor->name; // 'Grace Hopper'
+
+// A plain save records the same revision with nobody named.
+$comment->body = 'Third draft';
+$comment->save();
+
+// A status change is not an edit: no revision, edited_at stands.
+$comment->reject(by: $moderator);
+$comment->revisions()->count();             // still 2
+
+// The demo app's own listener sent it back to pending on each edit.
+// Nothing in the package does that; see WorkbenchServiceProvider.
+```
+
 Tear it down again with:
 
 ```bash
@@ -137,8 +159,9 @@ still transitions once.
 - `app/Models/User.php` — the commentator. Any Eloquent model works; a user
   model is just the familiar case.
 - `app/Providers/WorkbenchServiceProvider.php` — stands in for a real
-  application's config edits. On shipped defaults today; later features add
-  their settings here.
+  application's config edits and event wiring. On shipped config defaults; what
+  it adds is the re-moderation listener the package deliberately refuses to
+  ship, sending an edited approved comment back to `pending`.
 - `database/seeders/DatabaseSeeder.php` — the write-and-read loop.
 
 The comments table is deliberately absent from `database/migrations/`; the

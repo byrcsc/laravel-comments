@@ -23,4 +23,11 @@ final class CommentTrashedException extends CommentsException
             "Cannot add or remove reactions on comment {$comment->id}: it is soft deleted, and a tombstone keeps the reactions it already had. Restore it first."
         );
     }
+
+    public static function cannotEdit(Comment $comment): self
+    {
+        return new self(
+            "Cannot edit the body of comment {$comment->id}: it is soft deleted, and a tombstone that can be rewritten is not history. Restore it first."
+        );
+    }
 }
