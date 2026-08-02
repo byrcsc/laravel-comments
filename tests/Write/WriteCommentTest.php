@@ -47,14 +47,16 @@ it('writes a guest comment with a name and an email and no commentator', functio
         ->and($read->commentator)->toBeNull();
 });
 
-it('starts every comment approved in the foundation', function (): void {
+// How a status is chosen is the moderation layer's story; this only pins that
+// a written comment leaves here carrying one.
+it('gives every written comment a status', function (): void {
     $post = post();
 
     $authenticated = $post->comment('First!', by: user());
     $guest = $post->commentAsGuest('Second!', name: 'Jane', email: 'jane@example.com');
 
-    expect($authenticated->refresh()->status)->toBe(CommentStatus::Approved)
-        ->and($guest->refresh()->status)->toBe(CommentStatus::Approved);
+    expect($authenticated->refresh()->status)->toBeInstanceOf(CommentStatus::class)
+        ->and($guest->refresh()->status)->toBeInstanceOf(CommentStatus::class);
 });
 
 it('stores the body verbatim, markup and all', function (): void {

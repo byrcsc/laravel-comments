@@ -11,7 +11,9 @@ it('loads the config with its documented defaults', function (): void {
     expect(config('comments.table_names.comments'))->toBe('comments')
         ->and(config('comments.actor_key_type'))->toBe('int')
         ->and(config('comments.max_depth'))->toBe(3)
-        ->and(config('comments.max_length'))->toBeNull();
+        ->and(config('comments.max_length'))->toBeNull()
+        ->and(config('comments.default_status'))->toBe('approved')
+        ->and(config('comments.guest_status'))->toBe('pending');
 });
 
 it('registers the four publish tags', function (): void {
@@ -44,6 +46,16 @@ describe('boot-time validation', function (): void {
 
     it('rejects a non-integer max length', function (): void {
         expect(fn () => $this->rebootWith(['comments.max_length' => '280']))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects an unknown default status', function (): void {
+        expect(fn () => $this->rebootWith(['comments.default_status' => 'published']))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects a missing guest status rather than inventing one', function (): void {
+        expect(fn () => $this->rebootWith(['comments.guest_status' => null]))
             ->toThrow(InvalidConfigurationException::class);
     });
 

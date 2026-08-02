@@ -119,9 +119,9 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Threaded replies through a self-referencing parent, with a configurable
   maximum depth and scopes for top-level comments and whole threads.
 - Moderation statuses (`pending`, `approved`, `rejected`, `spam`) with
-  `approve()`, `reject()`, and `markAsSpam()`, per-model hooks for choosing the
-  initial status, and a configurable default. Guests start `pending` out of the
-  box.
+  `approve()`, `reject()`, and `markAsSpam()`, a scope per status, a
+  `DecidesCommentStatus` hook a commentable implements to choose the initial
+  status, and configurable defaults. Guests start `pending` out of the box.
 - Reactions on comments: an allowlist of permitted reactions, react, unreact,
   and toggle operations, one row per reactor per reaction, and an efficient
   per-comment summary of reaction counts.
@@ -149,6 +149,10 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Guest comments start `pending` regardless of the configured default status,
   unless your model's own hook says otherwise. Approving guest content is a
   decision the package will not make for you.
+- Transitions are idempotent. Approving an approved comment writes nothing and
+  fires nothing, so counts and notifications built on the transition events
+  cannot double up. Each comment carries its own status; approving a comment
+  never touches its replies.
 - Only commentators that are Laravel `Notifiable` models receive the reply
   notification. Guests are never emailed: the package refuses to send mail to
   an unverified address it cannot offer an unsubscribe path for.

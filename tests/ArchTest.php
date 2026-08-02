@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use ByRcsc\LaravelComments\Events\CommentEvent;
+use ByRcsc\LaravelComments\Events\CommentModerated;
 use ByRcsc\LaravelComments\Exceptions\CommentsException;
 use Illuminate\Database\Eloquent\Model;
 
@@ -40,18 +41,25 @@ arch('concerns are traits')
     ->expect('ByRcsc\LaravelComments\Concerns')
     ->toBeTraits();
 
-arch('events carry a comment and nothing else')
+arch('every event is a CommentEvent')
     ->expect('ByRcsc\LaravelComments\Events')
     ->toExtend(CommentEvent::class)
     ->ignoring(CommentEvent::class);
 
-arch('events other than the base are final')
+arch('events other than the base classes are final')
     ->expect('ByRcsc\LaravelComments\Events')
     ->toBeFinal()
-    ->ignoring(CommentEvent::class);
+    ->ignoring([CommentEvent::class, CommentModerated::class]);
 
-// Models describe the schema and its invariants. Transactions and manual
-// dispatching belong elsewhere, and this keeps it that way.
+arch('contracts are interfaces applications implement')
+    ->expect('ByRcsc\LaravelComments\Contracts')
+    ->toBeInterfaces();
+
+// Models describe the schema and its invariants, and reach for the framework
+// through the container rather than its facades: a transaction or a
+// notification decided inside a model is a decision the application cannot
+// take back. Transition events are the one thing a model dispatches itself,
+// through the helper, because Eloquent's own events cannot carry an actor.
 arch('models stay out of the transaction business')
     ->expect('ByRcsc\LaravelComments\Models')
     ->not->toUse([

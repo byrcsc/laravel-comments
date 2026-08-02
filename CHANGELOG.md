@@ -21,3 +21,13 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   creation with package exceptions.
 - Lifecycle events: created, updated, deleted, restored, force deleted.
 - Comment model factory, and a bootable workbench demo application.
+- Moderation: `approve()`, `reject()`, and `markAsSpam()` with an optional
+  actor, idempotent and firing exactly one event per real state change.
+- `CommentApproved`, `CommentRejected`, and `CommentMarkedAsSpam` events, over
+  the shared `CommentModerated` base.
+- `pending()`, `approved()`, `rejected()`, and `spam()` scopes.
+- Initial status resolution: `comments.default_status` and
+  `comments.guest_status` config keys, overridden by a commentable
+  implementing `DecidesCommentStatus`. Guests start `pending`.
+- Comment factory status states: `status()`, `pending()`, `approved()`,
+  `rejected()`, and `spam()`.

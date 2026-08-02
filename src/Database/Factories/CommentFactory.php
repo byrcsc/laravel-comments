@@ -19,6 +19,12 @@ use Illuminate\Database\Eloquent\Model;
  * guest, the one authorship the package can invent without a host model;
  * `by($user)` switches to an authenticated commentator.
  *
+ * No status is set here, so factory-built comments resolve theirs exactly as
+ * written ones do - a guest lands pending, which is the behavior a test of a
+ * moderation queue should be seeing. Name one with `status()` or its shortcuts
+ * when the test is about a particular status rather than about how comments
+ * arrive.
+ *
  * @extends Factory<Comment>
  */
 final class CommentFactory extends Factory
@@ -34,8 +40,32 @@ final class CommentFactory extends Factory
             'guest_name' => fake()->name(),
             'guest_email' => fake()->safeEmail(),
             'body' => fake()->paragraph(),
-            'status' => CommentStatus::Approved,
         ];
+    }
+
+    public function status(CommentStatus $status): self
+    {
+        return $this->state(['status' => $status]);
+    }
+
+    public function pending(): self
+    {
+        return $this->status(CommentStatus::Pending);
+    }
+
+    public function approved(): self
+    {
+        return $this->status(CommentStatus::Approved);
+    }
+
+    public function rejected(): self
+    {
+        return $this->status(CommentStatus::Rejected);
+    }
+
+    public function spam(): self
+    {
+        return $this->status(CommentStatus::Spam);
     }
 
     public function forCommentable(Model $commentable): self

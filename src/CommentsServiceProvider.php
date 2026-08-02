@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments;
 
+use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Exceptions\InvalidConfigurationException;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Spatie\LaravelPackageTools\Package;
@@ -37,6 +38,11 @@ final class CommentsServiceProvider extends PackageServiceProvider
         $this->validateActorKeyType($config['actor_key_type'] ?? null);
         $this->validateMaxDepth($config['max_depth'] ?? null);
         $this->validateMaxLength($config['max_length'] ?? null);
+
+        // There is no null here on purpose: every comment lands in some status,
+        // so "unset" would only mean an undocumented fallback chosen elsewhere.
+        CommentStatus::fromConfig('comments.default_status', $config['default_status'] ?? null);
+        CommentStatus::fromConfig('comments.guest_status', $config['guest_status'] ?? null);
     }
 
     /**

@@ -6,13 +6,18 @@ namespace ByRcsc\LaravelComments\Models;
 
 use ByRcsc\LaravelComments\Database\Factories\CommentFactory;
 use ByRcsc\LaravelComments\Enums\CommentStatus;
+use ByRcsc\LaravelComments\Events\CommentApproved;
 use ByRcsc\LaravelComments\Events\CommentCreated;
 use ByRcsc\LaravelComments\Events\CommentDeleted;
 use ByRcsc\LaravelComments\Events\CommentForceDeleted;
+use ByRcsc\LaravelComments\Events\CommentMarkedAsSpam;
+use ByRcsc\LaravelComments\Events\CommentModerated;
+use ByRcsc\LaravelComments\Events\CommentRejected;
 use ByRcsc\LaravelComments\Events\CommentRestored;
 use ByRcsc\LaravelComments\Events\CommentUpdated;
 use ByRcsc\LaravelComments\Exceptions\BodyTooLongException;
 use ByRcsc\LaravelComments\Exceptions\ThreadTooDeepException;
+use ByRcsc\LaravelComments\Support\InitialStatus;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -36,6 +41,11 @@ use LogicException;
  * The body is stored verbatim. Escaping, markdown, and everything else about
  * rendering belongs to the application - treat the body, the guest name, and
  * the guest email as untrusted input.
+ *
+ * A comment also carries a moderation status, which is package state rather
+ * than visibility: `approve()`, `reject()`, and `markAsSpam()` move it and the
+ * matching scopes read it, but what a visitor sees is decided by the
+ * application's own queries.
  *
  * @property int $id
  * @property string $commentable_type
@@ -65,17 +75,6 @@ final class Comment extends Model
     use SoftDeletes;
 
     protected $guarded = [];
-
-    /**
-     * The moderation layer replaces this with per-commentator resolution
-     * (guests pending, a per-model hook); until then every comment starts
-     * approved, matching the column default.
-     *
-     * @var array<string, mixed>
-     */
-    protected $attributes = [
-        'status' => 'approved',
-    ];
 
     /**
      * @var array<string, class-string>
@@ -112,13 +111,15 @@ final class Comment extends Model
 
     /**
      * The limits hold on `creating` so every write path - the trait, the
-     * reply API, factories - passes through the same gate.
+     * reply API, factories - passes through the same gate, and the initial
+     * status is resolved there for the same reason.
      */
     protected static function booted(): void
     {
         self::creating(function (self $comment): void {
             $comment->guardBodyLength();
             $comment->guardDepth();
+            $comment->resolveInitialStatus();
         });
     }
 
@@ -173,6 +174,90 @@ final class Comment extends Model
     }
 
     /**
+     * Comments waiting on a moderator. This is the moderation queue: the
+     * package ships no queue model because a scope is one.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopePending(Builder $query): void
+    {
+        $query->where('status', CommentStatus::Pending);
+    }
+
+    /**
+     * The comments a visitor may generally see - though that remains the
+     * application's call, and this scope is only the tool for making it.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopeApproved(Builder $query): void
+    {
+        $query->where('status', CommentStatus::Approved);
+    }
+
+    /**
+     * @param  Builder<Comment>  $query
+     */
+    public function scopeRejected(Builder $query): void
+    {
+        $query->where('status', CommentStatus::Rejected);
+    }
+
+    /**
+     * Kept apart from rejected so spam stays feedable to spam tooling rather
+     * than lost among ordinary moderator decisions.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopeSpam(Builder $query): void
+    {
+        $query->where('status', CommentStatus::Spam);
+    }
+
+    /**
+     * Approve this comment, optionally recording who did it.
+     *
+     * Returns whether the status actually moved: approving an approved
+     * comment writes nothing and fires nothing, so a listener counting
+     * approvals counts real ones. Replies are untouched - each comment in a
+     * thread carries its own status.
+     */
+    public function approve(?Model $by = null): bool
+    {
+        return $this->transitionTo(
+            CommentStatus::Approved,
+            new CommentApproved($this, $by),
+        );
+    }
+
+    /**
+     * Reject this comment: it stays stored, and stays out of the approved set.
+     *
+     * @see approve() for the return value and the idempotency guarantee.
+     */
+    public function reject(?Model $by = null): bool
+    {
+        return $this->transitionTo(
+            CommentStatus::Rejected,
+            new CommentRejected($this, $by),
+        );
+    }
+
+    /**
+     * Mark this comment as spam. The package detects nothing; this is where
+     * your own detection, or a moderator, records the verdict.
+     *
+     * @see approve() for the return value and the idempotency guarantee.
+     */
+    public function markAsSpam(?Model $by = null): bool
+    {
+        return $this->transitionTo(
+            CommentStatus::Spam,
+            new CommentMarkedAsSpam($this, $by),
+        );
+    }
+
+    /**
      * Reply to this comment as a commentator model.
      */
     public function reply(string $body, Model $by): self
@@ -216,6 +301,48 @@ final class Comment extends Model
     }
 
     /**
+     * A transition is one write and one event, or neither. The event is
+     * dispatched after the write so a listener that reloads the comment sees
+     * the new status, and only once the write is known to have landed: a host
+     * `saving` listener that halts the save must not leave counts and
+     * notifications counting a state change the table never took.
+     */
+    private function transitionTo(CommentStatus $status, CommentModerated $event): bool
+    {
+        if ($this->status === $status) {
+            return false;
+        }
+
+        $previous = $this->status;
+        $this->status = $status;
+
+        if ($this->save() === false) {
+            $this->status = $previous;
+
+            return false;
+        }
+
+        event($event);
+
+        return true;
+    }
+
+    /**
+     * An explicitly supplied status wins over both the hook and the defaults:
+     * a factory, a seeder, or an application restoring an export all know what
+     * they meant, and resolution is only there for the writes that said
+     * nothing.
+     */
+    private function resolveInitialStatus(): void
+    {
+        if ($this->getAttribute('status') !== null) {
+            return;
+        }
+
+        $this->status = InitialStatus::for($this);
+    }
+
+    /**
      * @param  array<string, mixed>  $attributes
      */
     private function createReply(array $attributes): self
@@ -224,11 +351,24 @@ final class Comment extends Model
             throw new LogicException('Cannot reply to an unsaved comment. Persist the parent first.');
         }
 
-        return self::create(array_merge($attributes, [
+        $reply = new self(array_merge($attributes, [
             'commentable_type' => $this->commentable_type,
             'commentable_id' => $this->commentable_id,
             'parent_id' => $this->getKey(),
         ]));
+
+        // Handing over what this comment already holds: the depth walk and the
+        // initial-status hook both read up the chain, and neither should pay
+        // for a row that is sitting in memory.
+        $reply->setRelation('parent', $this);
+
+        if ($this->relationLoaded('commentable')) {
+            $reply->setRelation('commentable', $this->getRelation('commentable'));
+        }
+
+        $reply->save();
+
+        return $reply;
     }
 
     private function guardBodyLength(): void

@@ -67,4 +67,26 @@ return [
 
     'max_length' => null,
 
+    /*
+    |--------------------------------------------------------------------------
+    | Initial moderation status
+    |--------------------------------------------------------------------------
+    |
+    | Which status a new comment starts in: `default_status` for comments
+    | written by a commentator model, `guest_status` for guest comments. Valid
+    | values: pending, approved, rejected, spam.
+    |
+    | Guests default to pending on purpose. Approving anonymous content is a
+    | decision the package will not make for you, so raising `default_status`
+    | never drags guests along with it - set `guest_status` yourself when you
+    | mean it.
+    |
+    | A commentable model implementing `DecidesCommentStatus` overrides both.
+    |
+    */
+
+    'default_status' => 'approved',
+
+    'guest_status' => 'pending',
+
 ];
