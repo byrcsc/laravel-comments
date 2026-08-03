@@ -20,6 +20,8 @@ return [
 
     'table_names' => [
         'comments' => 'comments',
+        'comment_reactions' => 'comment_reactions',
+        'comment_revisions' => 'comment_revisions',
     ],
 
     /*
@@ -66,5 +68,45 @@ return [
     */
 
     'max_length' => null,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Initial moderation status
+    |--------------------------------------------------------------------------
+    |
+    | Which status a new comment starts in: `default_status` for comments
+    | written by a commentator model, `guest_status` for guest comments. Valid
+    | values: pending, approved, rejected, spam.
+    |
+    | Guests default to pending on purpose. Approving anonymous content is a
+    | decision the package will not make for you, so raising `default_status`
+    | never drags guests along with it - set `guest_status` yourself when you
+    | mean it.
+    |
+    | A commentable model implementing `DecidesCommentStatus` overrides both.
+    |
+    */
+
+    'default_status' => 'approved',
+
+    'guest_status' => 'pending',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Allowed reactions
+    |--------------------------------------------------------------------------
+    |
+    | Which reactions a comment accepts. Reacting with anything outside this
+    | list throws; set it to null to accept any non-empty string that fits the
+    | `reaction` column - see AllowedReactions::MAX_LENGTH for that ceiling.
+    |
+    | These are stored and compared as given. Emoji that can be written more
+    | than one way - a base character plus a variation selector, say - are two
+    | different reactions to the database, so list the exact form your
+    | interface sends.
+    |
+    */
+
+    'allowed_reactions' => ['👍', '👎', '❤️', '🎉', '😄', '😢'],
 
 ];

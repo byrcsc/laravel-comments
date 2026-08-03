@@ -21,3 +21,31 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   creation with package exceptions.
 - Lifecycle events: created, updated, deleted, restored, force deleted.
 - Comment model factory, and a bootable workbench demo application.
+- Moderation: `approve()`, `reject()`, and `markAsSpam()` with an optional
+  actor, idempotent and firing exactly one event per real state change.
+- `CommentApproved`, `CommentRejected`, and `CommentMarkedAsSpam` events, over
+  the shared `CommentModerated` base.
+- `pending()`, `approved()`, `rejected()`, and `spam()` scopes.
+- Initial status resolution: `comments.default_status` and
+  `comments.guest_status` config keys, overridden by a commentable
+  implementing `DecidesCommentStatus`. Guests start `pending`.
+- Comment factory status states: `status()`, `pending()`, `approved()`,
+  `rejected()`, and `spam()`.
+- Reactions: `comment_reactions` table with cascade on delete and database
+  uniqueness over comment, reactor, and reaction; `react()`, `unreact()`, and
+  `toggleReaction()`; `reactions()`, `reactionCounts()`, `reactionSummary()`,
+  `hasReactionFrom()`, and `reactionsBy()`; the `CommentReaction` model.
+- `comments.allowed_reactions` config key, with a small emoji set by default
+  and null to accept any reaction.
+- `ReactionAdded` and `ReactionRemoved` events, over the shared
+  `CommentReacted` base.
+- `InvalidReactionException` and `CommentTrashedException`.
+- Revisions: `comment_revisions` table with cascade on delete, automatic
+  recording of the prior body and `edited_at` on every body change, `edit()`
+  for naming the editor, a `revisions()` relation, and the `CommentRevision`
+  model, which refuses updates.
+- `RevisionIsAppendOnlyException`.
+- Body writes now share one gate: an edit re-checks `comments.max_length` and
+  refuses a soft-deleted comment.
+- `CommentUpdated` is dispatched after the revision is recorded, so a
+  re-moderation listener has the previous body to compare against.

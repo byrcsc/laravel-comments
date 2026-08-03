@@ -12,10 +12,12 @@ use ByRcsc\LaravelComments\Models\Comment;
  * and be done. Everything else - the thread, the commentable, the commentator
  * - is derivable from the comment itself.
  *
- * These are dispatched through Eloquent's own model events, so they fire
- * inside whatever transaction caused them. A listener that does anything slow
- * or external should be queued, and a queued listener should dispatch after
- * commit - the comment it was handed may still be rolled back.
+ * The lifecycle events are dispatched through Eloquent's own model events; the
+ * moderation transitions carry an actor Eloquent knows nothing about, so those
+ * the model dispatches itself, immediately after the write. Either way they
+ * fire inside whatever transaction caused them. A listener that does anything
+ * slow or external should be queued, and a queued listener should dispatch
+ * after commit - the comment it was handed may still be rolled back.
  */
 abstract class CommentEvent
 {

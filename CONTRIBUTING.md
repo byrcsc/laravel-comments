@@ -91,6 +91,12 @@ behavior, update it in the same pull request.
 goes through the same `creating` gate that enforces the body length and depth
 limits. Keep it that way; a second write path that skips the gate is a bug.
 
+**Touching the body.** Editing has its own gate on `updating`, for the same
+reason: it re-checks the length limit, refuses a tombstone, and is where the
+revision and `edited_at` are decided. `edit()`, `update()`, and a plain
+attribute save all pass through it, and a path that changes a body without it
+is a bug too.
+
 **Touching deletion.** Soft delete is a tombstone that keeps replies; force
 delete removes the subtree through the database foreign key, not application
 recursion. Both halves are load-bearing and both have tests on every CI

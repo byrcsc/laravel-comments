@@ -47,14 +47,16 @@ it('writes a guest comment with a name and an email and no commentator', functio
         ->and($read->commentator)->toBeNull();
 });
 
-it('starts every comment approved in the foundation', function (): void {
+// How a status is chosen is the moderation layer's story; this only pins that
+// a written comment leaves here carrying one.
+it('gives every written comment a status', function (): void {
     $post = post();
 
     $authenticated = $post->comment('First!', by: user());
     $guest = $post->commentAsGuest('Second!', name: 'Jane', email: 'jane@example.com');
 
-    expect($authenticated->refresh()->status)->toBe(CommentStatus::Approved)
-        ->and($guest->refresh()->status)->toBe(CommentStatus::Approved);
+    expect($authenticated->refresh()->status)->toBeInstanceOf(CommentStatus::class)
+        ->and($guest->refresh()->status)->toBeInstanceOf(CommentStatus::class);
 });
 
 it('stores the body verbatim, markup and all', function (): void {
@@ -108,7 +110,8 @@ describe('body length limit', function (): void {
     it('allows a body exactly at the limit, counting multibyte characters as one', function (): void {
         config()->set('comments.max_length', 4);
 
-        // Four characters, five bytes: a byte-counting limit would reject it.
+        // The é is one character but two bytes, so a limit that counted bytes
+        // would reject a body that sits exactly on it.
         $comment = post()->comment('héll', by: user());
 
         expect($comment->refresh()->body)->toBe('héll');

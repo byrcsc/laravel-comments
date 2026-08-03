@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments\Exceptions;
 
+use ByRcsc\LaravelComments\Enums\CommentStatus;
+
 final class InvalidConfigurationException extends CommentsException
 {
     /**
@@ -31,6 +33,37 @@ final class InvalidConfigurationException extends CommentsException
 
         return new self(
             "The comments.actor_key_type config value must be one of: int, uuid, ulid, string. Got {$given}."
+        );
+    }
+
+    /**
+     * Names the key rather than the setting, because the two status keys are
+     * easy to mix up and the message is the only thing that disambiguates
+     * them.
+     */
+    public static function invalidStatus(string $key, mixed $status): self
+    {
+        $allowed = implode(', ', CommentStatus::values());
+        $given = is_string($status) ? "\"{$status}\"" : get_debug_type($status);
+
+        return new self(
+            "The {$key} config value must be one of: {$allowed}. Got {$given}."
+        );
+    }
+
+    public static function missingAllowedReactions(): self
+    {
+        return new self(
+            'The comments.allowed_reactions config key is missing. Publish the config again, or add the key: a list of non-empty strings, or null to allow any reaction.'
+        );
+    }
+
+    public static function invalidAllowedReactions(mixed $reactions): self
+    {
+        $given = is_array($reactions) ? 'an array holding something that is not a reaction' : get_debug_type($reactions);
+
+        return new self(
+            "The comments.allowed_reactions config value must be a list of non-empty strings, or null to allow any reaction. Got {$given}."
         );
     }
 

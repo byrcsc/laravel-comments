@@ -119,15 +119,19 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Threaded replies through a self-referencing parent, with a configurable
   maximum depth and scopes for top-level comments and whole threads.
 - Moderation statuses (`pending`, `approved`, `rejected`, `spam`) with
-  `approve()`, `reject()`, and `markAsSpam()`, per-model hooks for choosing the
-  initial status, and a configurable default. Guests start `pending` out of the
-  box.
-- Reactions on comments: an allowlist of permitted reactions, react, unreact,
-  and toggle operations, one row per reactor per reaction, and an efficient
-  per-comment summary of reaction counts.
+  `approve()`, `reject()`, and `markAsSpam()`, a scope per status, a
+  `DecidesCommentStatus` hook a commentable implements to choose the initial
+  status, and configurable defaults. Guests start `pending` out of the box.
+- Reactions on comments: an allowlist of permitted reactions, `react()`,
+  `unreact()`, and `toggleReaction()`, one row per reactor per reaction
+  enforced by the database, `hasReactionFrom()` and `reactionsBy()` for
+  highlighting what an actor already pressed, a `reactions()` relation for the
+  rows themselves, and a `reactionSummary()` of counts whose `reactionCounts`
+  relation eager loads a whole thread's totals in one query.
 - Soft deletes with tombstones for threads, subtree removal on force delete,
-  an `edited_at` timestamp, and a revision row recording the prior body and the
-  editor on every body change.
+  an `edited_at` timestamp, and a `revisions()` relation of rows recording the
+  prior body and the editor on every body change. `edit()` names the editor;
+  any other body write records the same revision with a null one.
 - Attachments as metadata rows (disk, path, name, MIME type, size) the
   application stored itself, plus `attachImage()` sugar built on Laravel's
   `Image` facade when `intervention/image` is installed.
@@ -149,19 +153,41 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Guest comments start `pending` regardless of the configured default status,
   unless your model's own hook says otherwise. Approving guest content is a
   decision the package will not make for you.
+- Transitions are idempotent. Approving an approved comment writes nothing and
+  fires nothing, so counts and notifications built on the transition events
+  cannot double up. Each comment carries its own status; approving a comment
+  never touches its replies.
 - Only commentators that are Laravel `Notifiable` models receive the reply
   notification. Guests are never emailed: the package refuses to send mail to
   an unverified address it cannot offer an unsubscribe path for.
 - Reactions require an identified reactor. Guests cannot react, because
-  deduplication is impossible without an identity.
+  deduplication is impossible without an identity. Reacting twice with the
+  same reaction is a no-op rather than an error, and the database enforces the
+  same rule behind the engine.
+- A soft-deleted comment neither takes new reactions nor gives up the ones it
+  had: both `react()` and `unreact()` refuse. The tombstone is history for a
+  moderator to read, not a place to keep voting. Force deleting removes the
+  reactions with the comment.
 - Maximum thread depth is enforced when the reply is created. Existing threads
   are never reshaped by a config change.
 - Soft deleting a comment keeps its replies and works as the thread's
   tombstone. Force deleting removes the whole subtree through the foreign key.
 - Revisions and the `edited_at` timestamp are recorded through Eloquent model
-  events. Revision rows are ordinary rows: there is no hash chain and no
-  tamper evidence here. If you need a verifiable history, that is what
+  events, so `edit()`, `update()`, and a plain attribute save all leave the
+  same trace, and `saveQuietly()`, the query builder, and raw SQL leave none.
+  Only a body change counts: a status transition or a pin touches neither.
+  A body change also goes through the same length limit a new comment does,
+  and a soft-deleted comment refuses one: rewriting a tombstone would leave
+  the moderator reading history that had been edited under them.
+  Revision rows are ordinary rows, append-only by convention rather than by
+  proof: there is no hash chain and no tamper evidence here. If you need a
+  verifiable history, that is what
   [byrcsc/laravel-approval](https://github.com/byrcsc/laravel-approval) is for.
+- The package never re-moderates an edited comment. `CommentUpdated` plus
+  `wasChanged('body')` is the hook for sending one back to `pending`, because
+  only your application can tell a fixed typo from an approved comment edited
+  into an advert. The event fires after the revision is filed, so the listener
+  has the previous body to judge against.
 - Denormalized counts include approved, non-deleted comments only, and are
   maintained through model events. Query-builder updates, upserts, quiet
   saves, and raw SQL bypass model events; `comments:recount` is the backstop.

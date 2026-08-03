@@ -58,6 +58,11 @@ trait HasComments
     }
 
     /**
+     * The comment is handed the commentable it already has rather than left to
+     * load one: the initial-status hook lives on this model, and re-reading
+     * the row we are standing on to ask it a question would be a query per
+     * comment written.
+     *
      * @param  array<string, mixed>  $attributes
      */
     private function writeComment(array $attributes): Comment
@@ -66,6 +71,10 @@ trait HasComments
             throw CommentableNotPersistedException::for($this);
         }
 
-        return $this->comments()->create($attributes);
+        $comment = $this->comments()->make($attributes);
+        $comment->setRelation('commentable', $this);
+        $comment->save();
+
+        return $comment;
     }
 }
