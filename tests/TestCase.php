@@ -155,10 +155,15 @@ abstract class TestCase extends Orchestra
      */
     protected function createStubTables(): void
     {
+        // `password` and `posts.body` are here for the workbench's own models,
+        // which the release suite runs the README quick start against: those
+        // are what a host application's models look like, and running the
+        // opening example on anything else would prove less.
         Schema::create('users', function (Blueprint $table) {
             $table->id();
             $table->string('name');
             $table->string('email')->unique();
+            $table->string('password')->nullable();
             $table->timestamps();
         });
 
@@ -183,6 +188,7 @@ abstract class TestCase extends Orchestra
         Schema::create('posts', function (Blueprint $table) {
             $table->id();
             $table->string('title');
+            $table->text('body')->nullable();
             // The count column the application owns. `CountedPost` opts into
             // it; `Post` sits on the same table and keeps no count, which is
             // what proves the opt-in is a decision rather than a schema sniff.

@@ -5,14 +5,11 @@ declare(strict_types=1);
 namespace ByRcsc\LaravelComments\Listeners;
 
 use ByRcsc\LaravelComments\Enums\CommentStatus;
-use ByRcsc\LaravelComments\Events\CommentApproved;
 use ByRcsc\LaravelComments\Events\CommentCreated;
 use ByRcsc\LaravelComments\Events\CommentDeleted;
 use ByRcsc\LaravelComments\Events\CommentForceDeleted;
-use ByRcsc\LaravelComments\Events\CommentMarkedAsSpam;
-use ByRcsc\LaravelComments\Events\CommentModerated;
-use ByRcsc\LaravelComments\Events\CommentRejected;
 use ByRcsc\LaravelComments\Events\CommentRestored;
+use ByRcsc\LaravelComments\Events\CommentUpdated;
 use ByRcsc\LaravelComments\Support\CommentCounts;
 use Illuminate\Contracts\Events\Dispatcher;
 
@@ -21,10 +18,9 @@ use Illuminate\Contracts\Events\Dispatcher;
  * are moderated, and are removed.
  *
  * Every handler here is one atomic database step, and every step is tied to an
- * event that fires exactly once per real state change - which is the contract
- * the moderation transitions make. A transition event firing twice for one
- * change would corrupt the column, and that is the reason those transitions
- * are idempotent.
+ * event that fires exactly once per real state change. Status changes hang off
+ * the update rather than off the transition events, so `approve()` and a plain
+ * attribute save are counted the same way and counted once.
  *
  * A model that never opted in costs nothing: `CommentCounts` returns no column
  * and every handler stops there.
@@ -38,12 +34,10 @@ final class MaintainsCommentCounts
     {
         return [
             CommentCreated::class => 'created',
+            CommentUpdated::class => 'updated',
             CommentDeleted::class => 'deleted',
             CommentRestored::class => 'restored',
             CommentForceDeleted::class => 'forceDeleted',
-            CommentApproved::class => 'entersApprovedSet',
-            CommentRejected::class => 'leavesApprovedSet',
-            CommentMarkedAsSpam::class => 'leavesApprovedSet',
         ];
     }
 
@@ -97,22 +91,49 @@ final class MaintainsCommentCounts
         CommentCounts::decrement($event->comment, $event->countableRemoved);
     }
 
-    public function entersApprovedSet(CommentApproved $event): void
-    {
-        if (! $event->comment->trashed()) {
-            CommentCounts::increment($event->comment);
-        }
-    }
-
     /**
-     * Only a comment that was actually in the set leaves it: rejecting a
-     * pending comment moves nothing, and a tombstone was already subtracted
-     * when it was deleted.
+     * Every status change, however it was made.
+     *
+     * Hanging this on the update rather than on the transition events is
+     * deliberate: `approve()` and a plain `$comment->status = ...; save()`
+     * both land here, and an application that moves a status by hand - the
+     * documented re-moderation pattern does exactly that - would otherwise
+     * leave the column behind. One update, one event, one step.
+     *
+     * The status a comment moved from is read off the model rather than off an
+     * event, because this fires from Eloquent's own `updated` hook, where the
+     * original attributes have not been synced yet. A tombstone is skipped
+     * both ways: it was already subtracted when it was deleted.
+     *
+     * A restore is skipped too, even though it is an update and even though it
+     * may carry a status change: `restore()` writes both columns in one save
+     * and then fires its own event, which counts the comment as it now stands.
+     * Counting here as well would count it twice.
      */
-    public function leavesApprovedSet(CommentModerated $event): void
+    public function updated(CommentUpdated $event): void
     {
-        if ($event->previousStatus === CommentStatus::Approved && ! $event->comment->trashed()) {
-            CommentCounts::decrement($event->comment);
+        $comment = $event->comment;
+
+        if (! $comment->wasChanged('status') || $comment->trashed()) {
+            return;
+        }
+
+        if ($comment->wasChanged($comment->getDeletedAtColumn())) {
+            return;
+        }
+
+        /** @var mixed $previous */
+        $previous = $comment->getOriginal('status');
+
+        $wasCountable = $previous === CommentStatus::Approved;
+        $isCountable = $comment->status === CommentStatus::Approved;
+
+        if ($isCountable && ! $wasCountable) {
+            CommentCounts::increment($comment);
+        }
+
+        if ($wasCountable && ! $isCountable) {
+            CommentCounts::decrement($comment);
         }
     }
 }

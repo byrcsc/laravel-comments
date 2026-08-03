@@ -92,9 +92,36 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   moderation denies until an application overrides it. The engine's own
   methods never consult it.
 
+- `Comments::fake()`, which swaps the write path for a recorder so an
+  application's own tests can assert what it asked the engine for without
+  touching a table. `CommentsFake` records comments, replies, and reactions,
+  and carries `assertCommented()`, `assertCommentedOn()`, `assertReplied()`,
+  `assertReacted()`, `assertNothingCommented()`, and `assertNothingReacted()`,
+  plus `comments()`, `commentsOn()`, `replies()`, `repliesTo()`, and
+  `reactionsOn()` for reading back what it recorded.
+- Comment factory states: `pinned()`, `trashed()`, and `threaded()`.
+- `CommentReactionFactory`, `CommentRevisionFactory`, and
+  `CommentAttachmentFactory`.
+- `Comment::isBy()`, which answers whether a comment was written by a given
+  model through the whole commentator morph.
+- `tests/Release/`, a suite that pins the entire documented public surface and
+  the guarantees the README states in prose, and runs the quick start against
+  the workbench's own models.
+
 ### Changed
 
 - `CommentModerated` and its subclasses now carry `$previousStatus`, the
   status a comment moved from. Counts and the reply notification are both
   built on "did it leave the approved set?", which the comment alone cannot
   answer after the write.
+- `CommentForceDeleted` now carries `$countableRemoved`, how many approved,
+  non-deleted comments the removed subtree held. The database's cascade fires
+  no events for the replies it takes, and nothing can recover the number
+  afterwards.
+- Denormalized counts follow every status change rather than only the
+  transition events, so `approve()` and a plain `$comment->status = ...;
+  save()` are counted alike. Sending an edited comment back to `pending` has
+  no transition method by design, and the count used to miss it.
+- The writes `Comments::fake()` does not record - moderating, editing,
+  pinning, attaching, deleting - now throw `NotFakeableException` while it is
+  recording, rather than writing against a key no table has.

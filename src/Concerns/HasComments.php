@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments\Concerns;
 
+use ByRcsc\LaravelComments\Comments;
 use ByRcsc\LaravelComments\Exceptions\CommentableNotPersistedException;
 use ByRcsc\LaravelComments\Exceptions\CommentsCountNotEnabledException;
 use ByRcsc\LaravelComments\Models\Comment;
@@ -114,6 +115,16 @@ trait HasComments
 
         $comment = $this->comments()->make($attributes);
         $comment->setRelation('commentable', $this);
+
+        // Under `Comments::fake()` the comment is recorded rather than saved,
+        // so an application's own tests can assert what it asked for without a
+        // table to clean up. Nothing else in the package knows the difference.
+        $fake = Comments::faked();
+
+        if ($fake !== null) {
+            return $fake->recordComment($comment);
+        }
+
         $comment->save();
 
         return $comment;

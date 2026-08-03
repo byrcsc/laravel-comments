@@ -101,6 +101,82 @@ it('drops a whole subtree at once on force delete', function (): void {
     expect(storedCount($post))->toBe(1);
 });
 
+describe('a status moved by hand', function (): void {
+    it('counts a plain attribute save, not only a transition method', function (): void {
+        $post = countedPost();
+        $comment = $post->comment('Approved on arrival', by: user());
+
+        expect(storedCount($post))->toBe(1);
+
+        // The documented re-moderation pattern: an edited comment goes back
+        // into the queue, and there is no transition method for that.
+        $comment->status = CommentStatus::Pending;
+        $comment->save();
+
+        expect(storedCount($post))->toBe(0);
+
+        $comment->status = CommentStatus::Approved;
+        $comment->save();
+
+        expect(storedCount($post))->toBe(1);
+    });
+
+    it('counts a transition exactly once, not once per event', function (): void {
+        $post = countedPost();
+        $comment = $post->commentAsGuest('Waiting', name: 'Jane', email: 'jane@example.com');
+
+        $comment->approve();
+
+        expect(storedCount($post))->toBe(1);
+    });
+
+    it('leaves the count alone for an update that is not a status change', function (): void {
+        $post = countedPost();
+        $comment = $post->comment('Approved on arrival', by: user());
+
+        $comment->edit('A second draft');
+        $comment->pin();
+        $comment->unpin();
+
+        expect(storedCount($post))->toBe(1);
+    });
+
+    it('counts a restore that also moves the status exactly once', function (): void {
+        $post = countedPost();
+        $comment = $post->commentAsGuest('Waiting', name: 'Jane', email: 'jane@example.com');
+        $comment->delete();
+
+        // One save writes both columns, and `restored` fires after it.
+        $comment->status = CommentStatus::Approved;
+        $comment->restore();
+
+        expect(storedCount($post))->toBe(1);
+    });
+
+    it('counts a restore into the queue as nothing', function (): void {
+        $post = countedPost();
+        $comment = $post->comment('Approved on arrival', by: user());
+        $comment->delete();
+
+        $comment->status = CommentStatus::Pending;
+        $comment->restore();
+
+        expect(storedCount($post))->toBe(0);
+    });
+
+    it('ignores a status write that goes around Eloquent', function (): void {
+        $post = countedPost();
+        $comment = $post->comment('Approved on arrival', by: user());
+
+        // Documented: the query builder fires no model events, and
+        // comments:recount is the backstop for the drift it causes.
+        DB::table('comments')->where('id', $comment->id)->update(['status' => 'spam']);
+
+        expect(storedCount($post))->toBe(1)
+            ->and($post->recountComments())->toBe(0);
+    });
+});
+
 it('reports what a force delete removed from the approved set', function (): void {
     $post = countedPost();
     $author = user();

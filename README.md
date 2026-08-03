@@ -149,8 +149,10 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Lifecycle events for every transition: created, updated, deleted, restored,
   approved, rejected, marked as spam, reaction added and removed, attachment
   added and removed, pinned and unpinned.
-- A `CommentPolicy` you may register, model factories, and a
-  `Comments::fake()` test helper.
+- A `CommentPolicy` you may register, factories for every model with states
+  for guest, each status, pinned, soft-deleted, and threaded comments, and a
+  `Comments::fake()` helper that records what your application asked the
+  engine for instead of writing it.
 
 ## Important behavior
 
@@ -158,9 +160,9 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   unless your model's own hook says otherwise. Approving guest content is a
   decision the package will not make for you.
 - Transitions are idempotent. Approving an approved comment writes nothing and
-  fires nothing, so counts and notifications built on the transition events
-  cannot double up. Each comment carries its own status; approving a comment
-  never touches its replies.
+  fires nothing, so counts and notifications built on the events cannot double
+  up. Each comment carries its own status; approving a comment never touches
+  its replies.
 - Only commentators that are Laravel `Notifiable` models receive the reply
   notification. Guests are never emailed: the package refuses to send mail to
   an unverified address it cannot offer an unsubscribe path for.
@@ -207,9 +209,13 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 
   They include approved, non-deleted comments only, and are maintained through
   model events in atomic increments, so two comments approved in the same
-  request both land. Query-builder updates, upserts, quiet saves, and raw SQL
-  bypass model events; `comments:recount` is the backstop, and `--dry-run`
-  shows what it would change first.
+  request both land. Every status change counts, however it was made:
+  `approve()` and a plain `$comment->status = ...; save()` are the same thing
+  here, which matters because sending an edited comment back to `pending` has
+  no transition method and is meant to be written by hand. Query-builder
+  updates, upserts, quiet saves, and raw SQL bypass model events;
+  `comments:recount` is the backstop, and `--dry-run` shows what it would
+  change first.
 - Pinning is independent of moderation. A pinned comment keeps whatever status
   it had, pinning never changes one, and several comments may be pinned on the
   same record: a one-pin rule is a decision for your controller, not the
@@ -252,6 +258,10 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   ability. Ownership is matched through the whole commentator morph, so a
   guest-authored comment matches no actor.
 - Notification delivery is opt-in and disabled by default.
+- `Comments::fake()` fakes writes, not reads. A faked comment carries a key and
+  can be replied to, and is held to the same body and depth limits a real write
+  is, but it is not a row: relations and scopes still read a database that has
+  nothing in it. Ask the fake what it recorded instead.
 - The package provides no UI, role package, or tenancy layer. Your application
   owns those.
 
@@ -318,9 +328,10 @@ vendor/bin/pint --test
 ```
 
 PHPStan runs at `max` with no baseline. Tests use SQLite locally and run
-against MySQL and PostgreSQL in CI. `tests/Release/` pins the public surface
-and the documented guarantees. A failure there is asking whether you meant to
-change the API. See [CONTRIBUTING.md](CONTRIBUTING.md).
+against MySQL and PostgreSQL in CI. `tests/Release/` pins the public surface,
+the documented guarantees, and the quick start above, run against the
+workbench's own models. A failure there is asking whether you meant to change
+the API. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 `workbench/` is a bootable demo application that installs the package the way
 a real application would, and exercises every integration seam: guest

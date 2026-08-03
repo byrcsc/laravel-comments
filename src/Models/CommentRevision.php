@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments\Models;
 
+use ByRcsc\LaravelComments\Database\Factories\CommentRevisionFactory;
 use ByRcsc\LaravelComments\Exceptions\RevisionIsAppendOnlyException;
 use ByRcsc\LaravelComments\Support\TableNames;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -32,6 +34,9 @@ use Illuminate\Support\Carbon;
  */
 final class CommentRevision extends Model
 {
+    /** @use HasFactory<CommentRevisionFactory> */
+    use HasFactory;
+
     /**
      * A row that can never be updated has no honest `updated_at` to keep, so
      * there is no column for one.
@@ -39,6 +44,11 @@ final class CommentRevision extends Model
     public const UPDATED_AT = null;
 
     protected $guarded = [];
+
+    protected static function newFactory(): CommentRevisionFactory
+    {
+        return CommentRevisionFactory::new();
+    }
 
     public function getTable(): string
     {

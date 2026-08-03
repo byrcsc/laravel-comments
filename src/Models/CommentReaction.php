@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments\Models;
 
+use ByRcsc\LaravelComments\Database\Factories\CommentReactionFactory;
 use ByRcsc\LaravelComments\Support\TableNames;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
@@ -31,7 +33,15 @@ use Illuminate\Support\Carbon;
  */
 final class CommentReaction extends Model
 {
+    /** @use HasFactory<CommentReactionFactory> */
+    use HasFactory;
+
     protected $guarded = [];
+
+    protected static function newFactory(): CommentReactionFactory
+    {
+        return CommentReactionFactory::new();
+    }
 
     public function getTable(): string
     {

@@ -6,8 +6,11 @@ namespace ByRcsc\LaravelComments\Database\Factories;
 
 use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Models\Comment;
+use DateTimeInterface;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
+use LogicException;
 
 /**
  * The definition has no commentable of its own - this package ships no
@@ -112,5 +115,63 @@ final class CommentFactory extends Factory
             'commentable_id' => $parent->commentable_id,
             'parent_id' => $parent->getKey(),
         ]);
+    }
+
+    /**
+     * Held at the top of its thread. Pass a timestamp when the order between
+     * several pinned comments is what the test is about.
+     */
+    public function pinned(?DateTimeInterface $at = null): self
+    {
+        return $this->state(fn (): array => ['pinned_at' => $at ?? Carbon::now()]);
+    }
+
+    /**
+     * A tombstone: the comment as a moderator finds it after a soft delete,
+     * keeping its replies, revisions, reactions, and attachments.
+     */
+    public function trashed(?DateTimeInterface $at = null): self
+    {
+        return $this->state(fn (): array => ['deleted_at' => $at ?? Carbon::now()]);
+    }
+
+    /**
+     * A comment sitting `$depth` levels down a freshly built thread: the
+     * ancestors above it are created too, on the same commentable.
+     *
+     * Chain it after `forCommentable()`, which is what tells the ancestors
+     * where to live. The depth limit applies as it does everywhere, so
+     * `threaded()` past `comments.max_depth` throws exactly as a reply would.
+     */
+    public function threaded(int $depth): self
+    {
+        if ($depth < 1) {
+            return $this;
+        }
+
+        return $this->state(function (array $attributes) use ($depth): array {
+            $commentable = [
+                'commentable_type' => $attributes['commentable_type'] ?? null,
+                'commentable_id' => $attributes['commentable_id'] ?? null,
+            ];
+
+            if ($commentable['commentable_type'] === null) {
+                throw new LogicException(
+                    'threaded() builds the comments above this one, so it needs to know what they are on. Chain it after forCommentable().'
+                );
+            }
+
+            $parentId = null;
+
+            for ($level = 0; $level < $depth; $level++) {
+                $parent = self::new()
+                    ->state($commentable + ['parent_id' => $parentId])
+                    ->createOne();
+
+                $parentId = $parent->getKey();
+            }
+
+            return ['parent_id' => $parentId];
+        });
     }
 }
