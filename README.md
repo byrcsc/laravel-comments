@@ -132,9 +132,11 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   an `edited_at` timestamp, and a `revisions()` relation of rows recording the
   prior body and the editor on every body change. `edit()` names the editor;
   any other body write records the same revision with a null one.
-- Attachments as metadata rows (disk, path, name, MIME type, size) the
-  application stored itself, plus `attachImage()` sugar built on Laravel's
-  `Image` facade when `intervention/image` is installed.
+- Attachments as metadata rows (disk, path, name, MIME type, size) for files
+  the application stored itself, with `attach()`, `detach()`, an
+  `attachments()` relation, and added and removed events; plus `attachImage()`
+  sugar built on Laravel's `Image` facade when `intervention/image` is
+  installed.
 - Optional denormalized comment counts on the commentable's own table,
   maintained by the trait and repairable with `comments:recount`.
 - Pinning through `pinned_at`, with scopes for pinned comments and
@@ -191,10 +193,24 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Denormalized counts include approved, non-deleted comments only, and are
   maintained through model events. Query-builder updates, upserts, quiet
   saves, and raw SQL bypass model events; `comments:recount` is the backstop.
-- `attach()` records metadata about a file your application already stored.
-  The package never reads attachment bytes and never deletes files from disk;
-  rows are removed with the comment, and the removal events are where file
-  cleanup belongs. `attachImage()` requires `intervention/image`.
+- `attach()` records metadata about a file your application already stored: a
+  disk, a path on it, and what you say the file is called, is, and weighs. The
+  package never opens the file, never checks that it is there, and never
+  deletes it. Soft deleting a comment keeps its attachment rows, so a tombstone
+  still shows a moderator what was posted; force deleting removes them through
+  the foreign key, and fires `AttachmentRemoved` for each one first, while the
+  disk and path are still readable. That is the file-cleanup hook, and it
+  covers the whole subtree the cascade takes, not only the comment you deleted.
+  A tombstone neither takes new attachments nor gives up the ones it had, for
+  the same reason its reactions are frozen.
+- `attachImage()` processes, stores, and records an image in one call. It is
+  the only path where the package writes bytes to a disk, and it writes only
+  the ones it was handed. It needs the framework's `Image` facade, which
+  arrived in Laravel 13, and `intervention/image`, which is a Composer
+  suggestion rather than a requirement; without it the call throws
+  `ImageSupportMissingException` rather than a driver error. It applies the
+  framework's default optimize step unless you pass `optimize: false`, which
+  is what a caller who configured the pipeline themselves wants.
 - The engine never authorizes its own methods. `CommentPolicy` ships with the
   package but is not registered for you; its defaults allow authors to update
   and delete their own comments and deny the moderation abilities until your

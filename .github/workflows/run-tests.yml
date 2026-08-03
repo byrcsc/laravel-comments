@@ -100,6 +100,36 @@ jobs:
       - name: Execute tests
         run: vendor/bin/pest --ci
 
+  # `intervention/image` is a Composer suggestion, so the matrix above runs
+  # without it and covers the missing-dependency path. This leg installs it and
+  # runs the other half: a real fixture image through the framework's Image
+  # facade, stored and recorded end to end. Each half skips itself in the
+  # other's leg, so both legs are green and neither is empty.
+  test-image-attachments:
+    name: P8.4 - L13 - intervention/image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, curl, libxml, mbstring, zip, pcntl, fileinfo, sqlite3, pdo_sqlite, gd
+          coverage: none
+
+      - name: Install dependencies with the image suggestion
+        run: |
+          composer require "laravel/framework:13.*" "orchestra/testbench:11.*" --no-interaction --no-update
+          composer require --dev "intervention/image:^4.0" --no-interaction --no-update
+          composer update --prefer-stable --prefer-dist --no-interaction
+
+      - name: Execute tests
+        run: vendor/bin/pest --ci
+
   # The engines SQLite stands in for during development. Version compatibility
   # is the matrix above's job; this one exists for what SQLite will not tell
   # the truth about - cascade behavior most of all, which the force-delete

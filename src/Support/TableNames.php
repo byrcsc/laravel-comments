@@ -18,6 +18,7 @@ final class TableNames
         'comments' => 'comments',
         'comment_reactions' => 'comment_reactions',
         'comment_revisions' => 'comment_revisions',
+        'comment_attachments' => 'comment_attachments',
     ];
 
     /**

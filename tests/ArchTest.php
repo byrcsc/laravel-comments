@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use ByRcsc\LaravelComments\Events\CommentAttachmentChanged;
 use ByRcsc\LaravelComments\Events\CommentEvent;
 use ByRcsc\LaravelComments\Events\CommentModerated;
 use ByRcsc\LaravelComments\Events\CommentReacted;
@@ -50,7 +51,12 @@ arch('every event is a CommentEvent')
 arch('events other than the base classes are final')
     ->expect('ByRcsc\LaravelComments\Events')
     ->toBeFinal()
-    ->ignoring([CommentEvent::class, CommentModerated::class, CommentReacted::class]);
+    ->ignoring([
+        CommentEvent::class,
+        CommentModerated::class,
+        CommentReacted::class,
+        CommentAttachmentChanged::class,
+    ]);
 
 arch('contracts are interfaces applications implement')
     ->expect('ByRcsc\LaravelComments\Contracts')

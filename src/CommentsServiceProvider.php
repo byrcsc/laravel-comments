@@ -7,6 +7,7 @@ namespace ByRcsc\LaravelComments;
 use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Exceptions\InvalidConfigurationException;
 use ByRcsc\LaravelComments\Support\AllowedReactions;
+use ByRcsc\LaravelComments\Support\AttachmentDefaults;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -24,6 +25,7 @@ final class CommentsServiceProvider extends PackageServiceProvider
                 'create_comments_table',
                 'create_comment_reactions_table',
                 'create_comment_revisions_table',
+                'create_comment_attachments_table',
             );
     }
 
@@ -50,6 +52,11 @@ final class CommentsServiceProvider extends PackageServiceProvider
         CommentStatus::fromConfig('comments.guest_status', $config['guest_status'] ?? null);
 
         $this->validateAllowedReactions($config);
+
+        // Only the shape is checked. Whether the disk exists is the filesystem
+        // config's business, and it would be the wrong thing to fail a boot
+        // over in an application that never attaches anything.
+        AttachmentDefaults::read($config['attachments'] ?? null);
     }
 
     /**

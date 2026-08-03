@@ -1,0 +1,74 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/*
+ * Metadata about files your application stored, recorded against a comment.
+ * The table name comes from `config/comments.php`, like the others.
+ *
+ * There is no actor here and so no `comments.actor_key_type` to honor: an
+ * attachment is part of the comment, and the comment already records who wrote
+ * it.
+ *
+ * The package never reads these files and never deletes them. Force deleting a
+ * comment removes the rows through the foreign key below; the bytes on disk are
+ * yours, and `AttachmentRemoved` is where cleaning them up belongs.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create($this->table(), function (Blueprint $table) {
+            $table->id();
+
+            // Attachments are part of a comment, not records beside it: force
+            // deleting the comment takes them with it. Soft deleting keeps
+            // them, so a tombstone still shows a moderator what was posted.
+            $table->foreignId('comment_id')
+                ->constrained($this->commentsTable())
+                ->cascadeOnDelete();
+
+            // Where the application put the file: a Laravel filesystem disk
+            // name and the path on it. Neither is ever resolved by the
+            // package - they are recorded, indexed, and handed back.
+            $table->string('disk');
+            $table->string('path', 1024);
+
+            // What to call it in an interface. Defaults to the path's
+            // basename, and like every other string here it is untrusted
+            // input: escape it on output.
+            $table->string('name');
+
+            // What the application said the file is, and how big it said it
+            // was. Both are nullable because an application that never
+            // inspected the upload has nothing truthful to record.
+            $table->string('mime_type')->nullable();
+            $table->unsignedBigInteger('size')->nullable();
+
+            $table->timestamps();
+
+            $table->index(['comment_id', 'id']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists($this->table());
+    }
+
+    private function table(): string
+    {
+        $table = config('comments.table_names.comment_attachments');
+
+        return is_string($table) && $table !== '' ? $table : 'comment_attachments';
+    }
+
+    private function commentsTable(): string
+    {
+        $table = config('comments.table_names.comments');
+
+        return is_string($table) && $table !== '' ? $table : 'comments';
+    }
+};

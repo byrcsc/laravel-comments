@@ -29,6 +29,9 @@
         "illuminate/support": "^12.0||^13.0",
         "spatie/laravel-package-tools": "^1.16"
     },
+    "suggest": {
+        "intervention/image": "Required by Comment::attachImage(), which drives the framework's Image facade (^4.0). Nothing else in the package needs it."
+    },
     "require-dev": {
         "larastan/larastan": "^3.3.1",
         "laravel/pint": "^1.14",

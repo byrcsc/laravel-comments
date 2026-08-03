@@ -6,6 +6,8 @@ namespace ByRcsc\LaravelComments\Models;
 
 use ByRcsc\LaravelComments\Database\Factories\CommentFactory;
 use ByRcsc\LaravelComments\Enums\CommentStatus;
+use ByRcsc\LaravelComments\Events\AttachmentAdded;
+use ByRcsc\LaravelComments\Events\AttachmentRemoved;
 use ByRcsc\LaravelComments\Events\CommentApproved;
 use ByRcsc\LaravelComments\Events\CommentCreated;
 use ByRcsc\LaravelComments\Events\CommentDeleted;
@@ -17,10 +19,14 @@ use ByRcsc\LaravelComments\Events\CommentRestored;
 use ByRcsc\LaravelComments\Events\CommentUpdated;
 use ByRcsc\LaravelComments\Events\ReactionAdded;
 use ByRcsc\LaravelComments\Events\ReactionRemoved;
+use ByRcsc\LaravelComments\Exceptions\AttachmentStorageFailedException;
 use ByRcsc\LaravelComments\Exceptions\BodyTooLongException;
 use ByRcsc\LaravelComments\Exceptions\CommentTrashedException;
+use ByRcsc\LaravelComments\Exceptions\InvalidAttachmentException;
 use ByRcsc\LaravelComments\Exceptions\ThreadTooDeepException;
 use ByRcsc\LaravelComments\Support\AllowedReactions;
+use ByRcsc\LaravelComments\Support\AttachmentDefaults;
+use ByRcsc\LaravelComments\Support\ImageSupport;
 use ByRcsc\LaravelComments\Support\InitialStatus;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Illuminate\Database\Eloquent\Builder;
@@ -32,6 +38,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Image\Image;
 use Illuminate\Support\Carbon;
 use LogicException;
 
@@ -79,6 +86,7 @@ use LogicException;
  * @property-read Collection<int, CommentReaction> $reactions
  * @property-read Collection<int, CommentReaction> $reactionCounts
  * @property-read Collection<int, CommentRevision> $revisions
+ * @property-read Collection<int, CommentAttachment> $attachments
  */
 final class Comment extends Model
 {
@@ -155,6 +163,10 @@ final class Comment extends Model
      * body it is judging against is what the revision holds. That first reason
      * is Eloquent internals, verified against Laravel 12 and 13 - recheck it
      * when raising the supported range.
+     *
+     * `forceDeleting` runs before the database's cascade, which is the last
+     * moment an attachment's disk and path are still readable - so that is
+     * where the removal events a file-cleanup listener needs are dispatched.
      */
     protected static function booted(): void
     {
@@ -172,6 +184,10 @@ final class Comment extends Model
             $comment->recordRevision();
 
             event(new CommentUpdated($comment));
+        });
+
+        self::forceDeleting(function (self $comment): void {
+            $comment->announceAttachmentRemovals();
         });
     }
 
@@ -512,6 +528,140 @@ final class Comment extends Model
     }
 
     /**
+     * The files recorded against this comment, oldest first. Rendering them is
+     * ordinary Eloquent; so is eager loading a whole thread's with
+     * `with('attachments')`.
+     *
+     * @return HasMany<CommentAttachment, $this>
+     */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(CommentAttachment::class)->oldest('id');
+    }
+
+    /**
+     * Record a file your application already stored.
+     *
+     * The package writes a row and nothing else: it does not open the file,
+     * does not check that it is there, and will never delete it. The disk and
+     * the path are whatever your application put the bytes under, and the
+     * metadata is recorded as given.
+     *
+     * The disk falls back to `comments.attachments.disk`, then to the
+     * application's own default disk. The name falls back to the path's
+     * basename. Size and MIME type stay null when you did not measure them:
+     * a guess recorded as fact is worse than an honest absence.
+     */
+    public function attach(
+        string $path,
+        ?string $disk = null,
+        ?string $name = null,
+        ?string $mimeType = null,
+        ?int $size = null,
+    ): CommentAttachment {
+        $this->guardAttachmentsWritable();
+
+        $disk = AttachmentDefaults::disk($disk);
+        $name ??= basename($path);
+
+        self::guardAttachmentMetadata($path, $name, $size);
+
+        $attachment = $this->attachments()->create([
+            'disk' => $disk,
+            'path' => $path,
+            'name' => $name,
+            'mime_type' => $mimeType,
+            'size' => $size,
+        ]);
+
+        $this->unsetRelation('attachments');
+
+        event(new AttachmentAdded($this, $attachment));
+
+        return $attachment;
+    }
+
+    /**
+     * Process an uploaded image, store it, and record it, in one call.
+     *
+     * Everything about the processing is the framework's: hand it whatever
+     * `Image::fromUpload()` and friends give you, configured however you like.
+     * The package adds the storing and the row.
+     *
+     * `$optimize` applies the framework's own default optimize step - WebP at
+     * its default quality - which is what makes the common screenshot case one
+     * line. Pass `optimize: false` when the pipeline you handed over already
+     * says what the output should be: `Image` keeps its pipeline private, so
+     * the package cannot ask whether you configured one and would otherwise
+     * overwrite your format. The flag is that question, asked of the caller.
+     *
+     * This is the one path where the package writes bytes to a disk, and it
+     * writes only the ones it was handed. Nothing is read back afterwards.
+     *
+     * Needs the framework's `Image` facade and `intervention/image`, which is
+     * a Composer suggestion rather than a requirement; without it this throws
+     * {@see ImageSupportMissingException} rather than a driver error.
+     */
+    public function attachImage(
+        Image $image,
+        ?string $name = null,
+        ?string $disk = null,
+        ?string $directory = null,
+        bool $optimize = true,
+    ): CommentAttachment {
+        $this->guardAttachmentsWritable();
+
+        ImageSupport::assertAvailable();
+
+        $disk = AttachmentDefaults::disk($disk);
+        $directory = AttachmentDefaults::directory($directory);
+
+        $processed = $optimize ? $image->optimize() : $image;
+
+        $stored = $processed->store($directory, $disk);
+
+        if ($stored === false) {
+            throw AttachmentStorageFailedException::forDisk($disk, $directory);
+        }
+
+        return $this->attach(
+            path: $stored,
+            disk: $disk,
+            name: $name ?? self::nameForStoredImage($processed, $stored),
+            mimeType: $processed->mimeType(),
+            size: strlen($processed->toBytes()),
+        );
+    }
+
+    /**
+     * Remove one attachment row. Returns whether there was one to remove, so a
+     * caller can tell a removal from a request that had already happened.
+     *
+     * The file on disk is untouched, here as everywhere. Delete it from a
+     * listener on {@see AttachmentRemoved}, where the row is still in hand.
+     */
+    public function detach(CommentAttachment $attachment): bool
+    {
+        $this->guardAttachmentsWritable();
+
+        if ($attachment->comment_id !== $this->id) {
+            throw InvalidAttachmentException::notOnComment($attachment, $this);
+        }
+
+        if (! $attachment->exists) {
+            return false;
+        }
+
+        $attachment->delete();
+
+        $this->unsetRelation('attachments');
+
+        event(new AttachmentRemoved($this, $attachment));
+
+        return true;
+    }
+
+    /**
      * Reply to this comment as a commentator model.
      */
     public function reply(string $body, Model $by): self
@@ -670,6 +820,119 @@ final class Comment extends Model
         if ($this->trashed()) {
             throw CommentTrashedException::cannotChangeReactions($this);
         }
+    }
+
+    /**
+     * A tombstone keeps the attachments it already had, and takes no new ones,
+     * for the same reason its reactions are frozen: a moderator reading what
+     * happened needs the record to have stopped changing. Reading is never
+     * gated.
+     */
+    private function guardAttachmentsWritable(): void
+    {
+        if (! $this->exists) {
+            throw new LogicException('Cannot change attachments on an unsaved comment. Persist it first.');
+        }
+
+        if ($this->trashed()) {
+            throw CommentTrashedException::cannotChangeAttachments($this);
+        }
+    }
+
+    /**
+     * Presence and types, and nothing further. Whether the bytes are really on
+     * that disk is the application's to know: it is what put them there, and a
+     * package that checked would be reading files it promised not to.
+     */
+    private static function guardAttachmentMetadata(string $path, string $name, ?int $size): void
+    {
+        if (trim($path) === '') {
+            throw InvalidAttachmentException::blank('path');
+        }
+
+        if (trim($name) === '') {
+            throw InvalidAttachmentException::blank('name');
+        }
+
+        if ($size !== null && $size < 0) {
+            throw InvalidAttachmentException::negativeSize($size);
+        }
+    }
+
+    /**
+     * What an uploaded image should be called once the pipeline has had its
+     * way with it: the name a person recognizes, carrying the extension of
+     * what was actually stored. A `screenshot.png` optimized to WebP is
+     * recorded as `screenshot.webp`, because a row whose name disagrees with
+     * its own bytes is metadata that lies.
+     */
+    private static function nameForStoredImage(Image $image, string $stored): string
+    {
+        $original = $image->file()?->getClientOriginalName();
+
+        if ($original === null || $original === '') {
+            return basename($stored);
+        }
+
+        $stem = pathinfo($original, PATHINFO_FILENAME);
+        $extension = pathinfo($stored, PATHINFO_EXTENSION);
+
+        if ($stem === '' || $extension === '') {
+            return basename($stored);
+        }
+
+        return "{$stem}.{$extension}";
+    }
+
+    /**
+     * The database removes these rows through the foreign key, which fires no
+     * model events - so the one hook an application has for deleting the files
+     * is dispatched here by hand, while the rows are still readable.
+     *
+     * The whole subtree is swept, not just this comment: force deleting a
+     * thread starter takes every reply's attachments with it through the same
+     * cascade, and a cleanup listener that never heard about them would leave
+     * the files behind forever. Reading it costs one query per level of the
+     * thread, and only on a force delete.
+     */
+    private function announceAttachmentRemovals(): void
+    {
+        foreach ($this->subtreeWithAttachments() as $comment) {
+            foreach ($comment->attachments as $attachment) {
+                event(new AttachmentRemoved($comment, $attachment));
+            }
+        }
+    }
+
+    /**
+     * This comment and every reply below it, attachments loaded, tombstones
+     * included - the database's cascade does not care whether a reply was
+     * soft deleted, so neither does this.
+     *
+     * The walk is level by level rather than recursive per row: a thread's
+     * depth is small and usually capped, its width is not.
+     *
+     * @return list<Comment>
+     */
+    private function subtreeWithAttachments(): array
+    {
+        $subtree = [$this];
+        $frontier = [$this->getKey()];
+
+        while ($frontier !== []) {
+            $level = self::withTrashed()
+                ->whereIn('parent_id', $frontier)
+                ->with('attachments')
+                ->get();
+
+            foreach ($level as $reply) {
+                $subtree[] = $reply;
+            }
+
+            $frontier = $level->modelKeys();
+        }
+
+        return $subtree;
     }
 
     /**

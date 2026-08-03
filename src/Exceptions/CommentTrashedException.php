@@ -24,6 +24,17 @@ final class CommentTrashedException extends CommentsException
         );
     }
 
+    /**
+     * Attachments freeze with the reactions, and for the same reason: what a
+     * moderator is reading has to have stopped changing.
+     */
+    public static function cannotChangeAttachments(Comment $comment): self
+    {
+        return new self(
+            "Cannot add or remove attachments on comment {$comment->id}: it is soft deleted, and a tombstone keeps the files it already listed. Restore it first."
+        );
+    }
+
     public static function cannotEdit(Comment $comment): self
     {
         return new self(
