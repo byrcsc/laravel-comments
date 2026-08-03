@@ -67,9 +67,9 @@ drift — if you change a public seam, run it and fix what broke.
 
 Tests are grouped by behavior, not by class: `Write/`, `Thread/`, `Deletion/`,
 `Lifecycle/`, `Moderation/`, `Reactions/`, `Revisions/`, `Attachments/`,
-`Pinning/`, `Counts/`, `Notifications/`, and `Authorization/` today, with more
-groups arriving with their features. Extend the group that owns the behavior
-rather than adding a parallel suite for a class.
+`Pinning/`, `Counts/`, `Notifications/`, `Authorization/`, and `Testing/`
+today, with more groups arriving with their features. Extend the group that
+owns the behavior rather than adding a parallel suite for a class.
 
 `Attachments/ImageAttachmentTest.php` is the one suite that cannot be fully
 green in a single install: `intervention/image` is a Composer suggestion, so
@@ -83,9 +83,16 @@ stub that ships. Do not mock package internals; use the framework fakes
 (`Event::fake()` and friends) for what the framework owns.
 
 `tests/ArchTest.php` enforces strict types, string-backed enums, a single
-catchable exception root, and no leftover debugging calls. A `tests/Release/`
-surface pin arrives before v1.0.0; once it exists, a failure there is asking
-whether you meant to change the public API.
+catchable exception root, and no leftover debugging calls.
+
+`tests/Release/` is the are-you-sure gate for API changes. It imports every
+public class, pins the signatures the README and the documentation describe,
+pins the guarantees the README states in prose, and runs the quick start
+against the workbench's own models. A failure there is not a bug report — it
+is this suite asking whether you meant to change the surface. If you did:
+update the README and the documentation in the same pull request, note it in
+the changelog, and remember that a removal or a rename is a major release.
+Anything not named there is internal and may change without notice.
 
 ## What a good change looks like
 

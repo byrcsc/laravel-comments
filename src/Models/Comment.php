@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments\Models;
 
+use ByRcsc\LaravelComments\Comments;
 use ByRcsc\LaravelComments\Database\Factories\CommentFactory;
 use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Events\AttachmentAdded;
@@ -26,6 +27,7 @@ use ByRcsc\LaravelComments\Exceptions\AttachmentStorageFailedException;
 use ByRcsc\LaravelComments\Exceptions\BodyTooLongException;
 use ByRcsc\LaravelComments\Exceptions\CommentTrashedException;
 use ByRcsc\LaravelComments\Exceptions\InvalidAttachmentException;
+use ByRcsc\LaravelComments\Exceptions\NotFakeableException;
 use ByRcsc\LaravelComments\Exceptions\ThreadTooDeepException;
 use ByRcsc\LaravelComments\Support\AllowedReactions;
 use ByRcsc\LaravelComments\Support\AttachmentDefaults;
@@ -187,9 +189,11 @@ final class Comment extends Model
     protected static function booted(): void
     {
         self::creating(function (self $comment): void {
-            $comment->guardBodyLength();
-            $comment->guardDepth();
-            $comment->resolveInitialStatus();
+            $comment->applyCreationRules();
+        });
+
+        self::deleting(function (self $comment): void {
+            $comment->guardNotFaked('delete a comment');
         });
 
         self::updating(function (self $comment): void {
@@ -457,6 +461,8 @@ final class Comment extends Model
             return false;
         }
 
+        $this->guardNotFaked('edit a comment');
+
         $this->pendingEditor = $by;
         $this->body = $body;
 
@@ -533,6 +539,12 @@ final class Comment extends Model
 
         AllowedReactions::assert($reaction);
 
+        $fake = Comments::faked();
+
+        if ($fake !== null) {
+            return $fake->recordReaction($this, $by, $reaction);
+        }
+
         $existing = $this->findReaction($reaction, $by);
 
         if ($existing !== null) {
@@ -568,6 +580,12 @@ final class Comment extends Model
     public function unreact(string $reaction, Model $by): bool
     {
         $this->guardReactionsWritable();
+
+        $fake = Comments::faked();
+
+        if ($fake !== null) {
+            return $fake->forgetReaction($this, $by, $reaction);
+        }
 
         $existing = $this->findReaction($reaction, $by);
 
@@ -788,6 +806,26 @@ final class Comment extends Model
     }
 
     /**
+     * The gate a write passes through on `creating`, applied to a comment that
+     * is not going to be written.
+     *
+     * This is the gate itself, not a copy of it: the `creating` hook calls
+     * exactly this, so every write path is held to one list in one place.
+     *
+     * @internal `Comments::fake()` records rather than saves, so Eloquent
+     * never fires `creating` - and the body limit, the depth limit, and the
+     * initial status all live there. A faked write is held to the same three
+     * rules a real one is, which is the only way an assertion about a faked
+     * guest comment landing pending can mean anything.
+     */
+    public function applyCreationRules(): void
+    {
+        $this->guardBodyLength();
+        $this->guardDepth();
+        $this->resolveInitialStatus();
+    }
+
+    /**
      * How far from the top of its thread this comment sits: 0 for a top-level
      * comment, one more for each level of reply above it.
      */
@@ -823,6 +861,8 @@ final class Comment extends Model
             return false;
         }
 
+        $this->guardNotFaked("move a comment to {$status->value}");
+
         $previous = $this->status;
         $this->status = $status;
 
@@ -847,6 +887,8 @@ final class Comment extends Model
      */
     private function movePin(?Carbon $pinnedAt, Closure $event): bool
     {
+        $this->guardNotFaked($pinnedAt === null ? 'unpin a comment' : 'pin a comment');
+
         $previous = $this->pinned_at;
         $this->pinned_at = $pinnedAt;
 
@@ -953,6 +995,21 @@ final class Comment extends Model
     }
 
     /**
+     * The writes `Comments::fake()` does not record, refused while it is.
+     *
+     * A recorded comment carries a key no table has, so letting one of these
+     * through would write against nothing and say it worked, or fail on a
+     * foreign key three frames away from the call that caused it. Refusing
+     * here says what happened and what to do instead.
+     */
+    private function guardNotFaked(string $operation): void
+    {
+        if (Comments::faked() !== null) {
+            throw NotFakeableException::for($operation);
+        }
+    }
+
+    /**
      * A tombstone keeps the attachments it already had, and takes no new ones,
      * for the same reason its reactions are frozen: a moderator reading what
      * happened needs the record to have stopped changing. Reading is never
@@ -960,6 +1017,8 @@ final class Comment extends Model
      */
     private function guardAttachmentsWritable(): void
     {
+        $this->guardNotFaked('attach to or detach from a comment');
+
         if (! $this->exists) {
             throw new LogicException('Cannot change attachments on an unsaved comment. Persist it first.');
         }
@@ -1157,6 +1216,12 @@ final class Comment extends Model
 
         if ($this->relationLoaded('commentable')) {
             $reply->setRelation('commentable', $this->getRelation('commentable'));
+        }
+
+        $fake = Comments::faked();
+
+        if ($fake !== null) {
+            return $fake->recordComment($reply);
         }
 
         $reply->save();

@@ -39,6 +39,16 @@ final class Post extends Model implements DecidesCommentStatus
             : null;
     }
 
+    /**
+     * Opting into the denormalized count. The column lives in this app's own
+     * migration; naming it here is the whole opt-in, and every commentable
+     * that says nothing keeps no count.
+     */
+    public function commentsCountColumn(): ?string
+    {
+        return 'comments_count';
+    }
+
     protected static function newFactory(): PostFactory
     {
         return PostFactory::new();

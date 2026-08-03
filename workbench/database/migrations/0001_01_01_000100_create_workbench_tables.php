@@ -25,6 +25,12 @@ return new class extends Migration
             $table->id();
             $table->string('title');
             $table->text('body')->nullable();
+
+            // The denormalized comment count. The column is the application's,
+            // which is why it is written here rather than published from the
+            // package; `Post::commentsCountColumn()` is what opts in to it.
+            $table->unsignedInteger('comments_count')->default(0);
+
             $table->timestamps();
         });
     }
