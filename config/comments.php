@@ -22,6 +22,7 @@ return [
         'comments' => 'comments',
         'comment_reactions' => 'comment_reactions',
         'comment_revisions' => 'comment_revisions',
+        'comment_attachments' => 'comment_attachments',
     ],
 
     /*
@@ -108,5 +109,28 @@ return [
     */
 
     'allowed_reactions' => ['👍', '👎', '❤️', '🎉', '😄', '😢'],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Attachments
+    |--------------------------------------------------------------------------
+    |
+    | Where `attachImage()` puts a file when the caller does not say. `disk` is
+    | a filesystem disk name, or null for your application's default disk;
+    | `directory` is the folder on it, and an empty string means the disk root.
+    |
+    | Only the image convenience reads these. `attach()` records a file your
+    | application already stored, so it is told the disk and the path outright
+    | and only falls back to `disk` for the name it writes down.
+    |
+    | The package never reads these files back and never deletes them. Removal
+    | fires `AttachmentRemoved`, which is where deleting the bytes belongs.
+    |
+    */
+
+    'attachments' => [
+        'disk' => env('COMMENTS_ATTACHMENTS_DISK'),
+        'directory' => 'comments/attachments',
+    ],
 
 ];

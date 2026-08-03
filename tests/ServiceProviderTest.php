@@ -16,7 +16,10 @@ it('loads the config with its documented defaults', function (): void {
         ->and(config('comments.guest_status'))->toBe('pending')
         ->and(config('comments.table_names.comment_reactions'))->toBe('comment_reactions')
         ->and(config('comments.table_names.comment_revisions'))->toBe('comment_revisions')
-        ->and(config('comments.allowed_reactions'))->toBeArray();
+        ->and(config('comments.table_names.comment_attachments'))->toBe('comment_attachments')
+        ->and(config('comments.allowed_reactions'))->toBeArray()
+        ->and(config('comments.attachments.disk'))->toBeNull()
+        ->and(config('comments.attachments.directory'))->toBe('comments/attachments');
 });
 
 it('registers the four publish tags', function (): void {
@@ -72,6 +75,21 @@ describe('boot-time validation', function (): void {
             ->toThrow(InvalidConfigurationException::class);
     });
 
+    it('rejects an attachments section that is not an array', function (): void {
+        expect(fn () => $this->rebootWith(['comments.attachments' => 'uploads']))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects an attachment disk that is not a name', function (): void {
+        expect(fn () => $this->rebootWith(['comments.attachments' => ['disk' => 42, 'directory' => '']]))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects an attachment directory that is not a string', function (): void {
+        expect(fn () => $this->rebootWith(['comments.attachments' => ['disk' => null, 'directory' => 42]]))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
     it('accepts null for unlimited depth and length', function (): void {
         $this->rebootWith(['comments.max_depth' => null, 'comments.max_length' => null]);
 
@@ -85,6 +103,7 @@ it('honors a renamed comments table', function (): void {
         'comments' => 'discussion_entries',
         'comment_reactions' => 'discussion_entry_reactions',
         'comment_revisions' => 'discussion_entry_revisions',
+        'comment_attachments' => 'discussion_entry_attachments',
     ]]);
 
     $comment = post()->comment('On a renamed table', by: user());

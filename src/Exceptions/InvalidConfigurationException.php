@@ -67,6 +67,33 @@ final class InvalidConfigurationException extends CommentsException
         );
     }
 
+    public static function invalidAttachments(mixed $attachments): self
+    {
+        $given = get_debug_type($attachments);
+
+        return new self(
+            "The comments.attachments config value must be an array holding a disk and a directory. Got {$given}."
+        );
+    }
+
+    public static function invalidAttachmentDisk(mixed $disk): self
+    {
+        $given = get_debug_type($disk);
+
+        return new self(
+            "The comments.attachments.disk config value must be a filesystem disk name, or null for your application's default disk. Got {$given}."
+        );
+    }
+
+    public static function invalidAttachmentDirectory(mixed $directory): self
+    {
+        $given = get_debug_type($directory);
+
+        return new self(
+            "The comments.attachments.directory config value must be a string; use an empty string for the disk's root. Got {$given}."
+        );
+    }
+
     public static function invalidMaxDepth(mixed $depth): self
     {
         $given = is_scalar($depth) ? var_export($depth, true) : get_debug_type($depth);

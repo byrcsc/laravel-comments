@@ -66,9 +66,15 @@ drift — if you change a public seam, run it and fix what broke.
 ## Where tests go
 
 Tests are grouped by behavior, not by class: `Write/`, `Thread/`, `Deletion/`,
-and `Lifecycle/` today, with more groups arriving with their features. Extend
-the group that owns the behavior rather than adding a parallel suite for a
-class.
+`Lifecycle/`, `Moderation/`, `Reactions/`, `Revisions/`, and `Attachments/`
+today, with more groups arriving with their features. Extend the group that
+owns the behavior rather than adding a parallel suite for a class.
+
+`Attachments/ImageAttachmentTest.php` is the one suite that cannot be fully
+green in a single install: `intervention/image` is a Composer suggestion, so
+the default run covers the missing-dependency path and skips the pipeline,
+while CI's `intervention/image` leg installs it and does the reverse. Run
+`composer require --dev intervention/image:^4.0` locally to see that half.
 
 The primary seam is the documented public API — the `HasComments` trait and
 the `Comment` model — exercised against a real database through the migration
