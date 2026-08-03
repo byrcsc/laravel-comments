@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments\Events;
 
+use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Models\Comment;
 use Illuminate\Database\Eloquent\Model;
 
@@ -23,6 +24,12 @@ use Illuminate\Database\Eloquent\Model;
  *         fn (CommentModerated $event) => $this->reindex($event->comment),
  *     );
  *
+ * The comment carries the status it moved to; `$previousStatus` is where it
+ * moved from. A listener cannot recover that from the comment - Eloquent has
+ * already synced the write by the time this fires - and "did it leave the
+ * approved set?" is the question denormalized counts and the reply
+ * notification are both built on.
+ *
  * The actor is whoever the caller passed to the transition method, and null
  * when nobody did: the package never resolves an authenticated user for you,
  * because a console command, a queued job, and a spam service are all valid
@@ -30,8 +37,11 @@ use Illuminate\Database\Eloquent\Model;
  */
 abstract class CommentModerated extends CommentEvent
 {
-    public function __construct(Comment $comment, public readonly ?Model $actor = null)
-    {
+    public function __construct(
+        Comment $comment,
+        public readonly CommentStatus $previousStatus,
+        public readonly ?Model $actor = null,
+    ) {
         parent::__construct($comment);
     }
 }

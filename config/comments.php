@@ -133,4 +133,35 @@ return [
         'directory' => 'comments/attachments',
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Notifications
+    |--------------------------------------------------------------------------
+    |
+    | The package ships exactly one notification and delivers it only when you
+    | say so: the author of a comment is told when it receives a reply. It is
+    | off by default, because installing a package should never send mail.
+    |
+    | `channels` is the whole delivery story - set it to ['database'] or add
+    | your own channel and the shipped notification follows without a subclass.
+    | An empty list is a configuration error rather than another way to say
+    | off; `enabled` is how you say off.
+    |
+    | Only commentators that are Laravel `Notifiable` models are ever
+    | candidates. Guest-authored comments are never notified, whatever this
+    | section says: a guest email is unverified input, not a mailbox.
+    |
+    | The events fire either way, so your own listeners never depend on this.
+    |
+    */
+
+    'notifications' => [
+
+        'reply' => [
+            'enabled' => env('COMMENTS_NOTIFY_REPLIES', false),
+            'channels' => ['mail'],
+        ],
+
+    ],
+
 ];

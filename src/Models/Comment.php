@@ -14,8 +14,11 @@ use ByRcsc\LaravelComments\Events\CommentDeleted;
 use ByRcsc\LaravelComments\Events\CommentForceDeleted;
 use ByRcsc\LaravelComments\Events\CommentMarkedAsSpam;
 use ByRcsc\LaravelComments\Events\CommentModerated;
+use ByRcsc\LaravelComments\Events\CommentPinChanged;
+use ByRcsc\LaravelComments\Events\CommentPinned;
 use ByRcsc\LaravelComments\Events\CommentRejected;
 use ByRcsc\LaravelComments\Events\CommentRestored;
+use ByRcsc\LaravelComments\Events\CommentUnpinned;
 use ByRcsc\LaravelComments\Events\CommentUpdated;
 use ByRcsc\LaravelComments\Events\ReactionAdded;
 use ByRcsc\LaravelComments\Events\ReactionRemoved;
@@ -29,6 +32,7 @@ use ByRcsc\LaravelComments\Support\AttachmentDefaults;
 use ByRcsc\LaravelComments\Support\ImageSupport;
 use ByRcsc\LaravelComments\Support\InitialStatus;
 use ByRcsc\LaravelComments\Support\TableNames;
+use Closure;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -76,6 +80,7 @@ use LogicException;
  * @property CommentStatus $status
  * @property Carbon|null $edited_at
  * @property Carbon|null $pinned_at
+ * @property Carbon|null $reply_notified_at
  * @property Carbon|null $deleted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -118,8 +123,15 @@ final class Comment extends Model
         'created' => CommentCreated::class,
         'deleted' => CommentDeleted::class,
         'restored' => CommentRestored::class,
-        'forceDeleted' => CommentForceDeleted::class,
     ];
+
+    /**
+     * How many comments in this one's subtree were in the approved set when a
+     * force delete started, carried from `forceDeleting` - the last moment the
+     * rows are readable - to `forceDeleted`, where the event reports it. Null
+     * outside that hop.
+     */
+    private ?int $countableInSubtree = null;
 
     public function getTable(): string
     {
@@ -140,6 +152,7 @@ final class Comment extends Model
             'status' => CommentStatus::class,
             'edited_at' => 'datetime',
             'pinned_at' => 'datetime',
+            'reply_notified_at' => 'datetime',
         ];
     }
 
@@ -165,8 +178,11 @@ final class Comment extends Model
      * when raising the supported range.
      *
      * `forceDeleting` runs before the database's cascade, which is the last
-     * moment an attachment's disk and path are still readable - so that is
-     * where the removal events a file-cleanup listener needs are dispatched.
+     * moment the subtree is readable at all - so that is where an attachment's
+     * disk and path are read for the removal events, and where the approved
+     * comments about to disappear are counted. `CommentForceDeleted` is
+     * dispatched by hand rather than through `$dispatchesEvents` so it can
+     * carry that count; nothing can recover it afterwards.
      */
     protected static function booted(): void
     {
@@ -187,7 +203,14 @@ final class Comment extends Model
         });
 
         self::forceDeleting(function (self $comment): void {
-            $comment->announceAttachmentRemovals();
+            $comment->readSubtreeBeforeItGoes();
+        });
+
+        self::registerModelEvent('forceDeleted', function (self $comment): void {
+            $countable = $comment->countableInSubtree ?? 0;
+            $comment->countableInSubtree = null;
+
+            event(new CommentForceDeleted($comment, $countable));
         });
     }
 
@@ -294,7 +317,7 @@ final class Comment extends Model
     {
         return $this->transitionTo(
             CommentStatus::Approved,
-            new CommentApproved($this, $by),
+            fn (CommentStatus $from): CommentModerated => new CommentApproved($this, $from, $by),
         );
     }
 
@@ -307,7 +330,7 @@ final class Comment extends Model
     {
         return $this->transitionTo(
             CommentStatus::Rejected,
-            new CommentRejected($this, $by),
+            fn (CommentStatus $from): CommentModerated => new CommentRejected($this, $from, $by),
         );
     }
 
@@ -321,8 +344,85 @@ final class Comment extends Model
     {
         return $this->transitionTo(
             CommentStatus::Spam,
-            new CommentMarkedAsSpam($this, $by),
+            fn (CommentStatus $from): CommentModerated => new CommentMarkedAsSpam($this, $from, $by),
         );
+    }
+
+    /**
+     * Comments held at the top of their thread. Several may be pinned at once:
+     * the engine enforces no ceiling, because a product that pins three
+     * announcements is not doing anything wrong. A one-pin rule belongs in
+     * your controller.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopePinned(Builder $query): void
+    {
+        $query->whereNotNull('pinned_at');
+    }
+
+    /**
+     * Pinned comments first, most recently pinned among them, then everything
+     * else oldest first - which is the order a thread reads in.
+     *
+     * The null test is spelled out rather than left to the driver: MySQL and
+     * SQLite sort nulls first, PostgreSQL sorts them last, and a listing whose
+     * order depends on the engine is a bug waiting for a migration.
+     *
+     * @param  Builder<Comment>  $query
+     */
+    public function scopePinnedFirst(Builder $query): void
+    {
+        $query->orderByRaw('case when pinned_at is null then 1 else 0 end')
+            ->orderByDesc('pinned_at')
+            ->orderBy('id');
+    }
+
+    /**
+     * Pin this comment, optionally recording who did it.
+     *
+     * Returns whether anything moved: pinning a pinned comment writes nothing
+     * and fires nothing, so its position in the thread does not shuffle under
+     * a second click. Status is untouched - a pinned comment still carries
+     * whatever moderation state it had.
+     */
+    public function pin(?Model $by = null): bool
+    {
+        if ($this->pinned_at !== null) {
+            return false;
+        }
+
+        return $this->movePin($this->freshTimestamp(), fn (): CommentPinChanged => new CommentPinned($this, $by));
+    }
+
+    /**
+     * Take a pin back.
+     *
+     * @see pin() for the return value and the idempotency guarantee.
+     */
+    public function unpin(?Model $by = null): bool
+    {
+        if ($this->pinned_at === null) {
+            return false;
+        }
+
+        return $this->movePin(null, fn (): CommentPinChanged => new CommentUnpinned($this, $by));
+    }
+
+    /**
+     * Whether this comment was written by the given model.
+     *
+     * Both halves of the morph have to match: a `User` and an `Admin` that
+     * happen to share a primary key are not the same author. A guest-authored
+     * comment matches nobody, which is what makes ownership checks deny for
+     * one. The key is compared loosely because one read back from the database
+     * is a string where the model in hand holds an int.
+     */
+    public function isBy(Model $actor): bool
+    {
+        return $this->commentator_type !== null
+            && $this->commentator_type === $actor->getMorphClass()
+            && $this->commentator_id == $actor->getKey();
     }
 
     /**
@@ -710,8 +810,14 @@ final class Comment extends Model
      * the new status, and only once the write is known to have landed: a host
      * `saving` listener that halts the save must not leave counts and
      * notifications counting a state change the table never took.
+     *
+     * The event arrives as a factory rather than an instance so that nothing
+     * is built for a transition that does not happen, and so the status it
+     * moved from is read here - the one place that still knows it.
+     *
+     * @param  Closure(CommentStatus): CommentModerated  $event
      */
-    private function transitionTo(CommentStatus $status, CommentModerated $event): bool
+    private function transitionTo(CommentStatus $status, Closure $event): bool
     {
         if ($this->status === $status) {
             return false;
@@ -726,7 +832,31 @@ final class Comment extends Model
             return false;
         }
 
-        event($event);
+        event($event($previous));
+
+        return true;
+    }
+
+    /**
+     * One write and one event, or neither - the same shape a moderation
+     * transition takes, and for the same reason: a host `saving` listener that
+     * halts the save must not leave a listener counting a pin the table never
+     * took.
+     *
+     * @param  Closure(): CommentPinChanged  $event
+     */
+    private function movePin(?Carbon $pinnedAt, Closure $event): bool
+    {
+        $previous = $this->pinned_at;
+        $this->pinned_at = $pinnedAt;
+
+        if ($this->save() === false) {
+            $this->pinned_at = $previous;
+
+            return false;
+        }
+
+        event($event());
 
         return true;
     }
@@ -885,23 +1015,33 @@ final class Comment extends Model
     }
 
     /**
-     * The database removes these rows through the foreign key, which fires no
-     * model events - so the one hook an application has for deleting the files
-     * is dispatched here by hand, while the rows are still readable.
+     * Everything a force delete has to know before the database's cascade
+     * takes it: which attachment rows are going, and how many of the comments
+     * going with them were in the approved set.
      *
-     * The whole subtree is swept, not just this comment: force deleting a
-     * thread starter takes every reply's attachments with it through the same
-     * cascade, and a cleanup listener that never heard about them would leave
-     * the files behind forever. Reading it costs one query per level of the
-     * thread, and only on a force delete.
+     * The cascade fires no model events, so this is the only moment either
+     * question can be answered. Both are asked of the whole subtree, not just
+     * this comment: a cleanup listener that never heard about a reply's files
+     * would leave them on the disk forever, and a count that ignored the
+     * replies would be wrong the moment a thread starter is removed.
+     *
+     * It costs one query per level of the thread, and only on a force delete.
      */
-    private function announceAttachmentRemovals(): void
+    private function readSubtreeBeforeItGoes(): void
     {
+        $countable = 0;
+
         foreach ($this->subtreeWithAttachments() as $comment) {
             foreach ($comment->attachments as $attachment) {
                 event(new AttachmentRemoved($comment, $attachment));
             }
+
+            if ($comment->status === CommentStatus::Approved && ! $comment->trashed()) {
+                $countable++;
+            }
         }
+
+        $this->countableInSubtree = $countable;
     }
 
     /**

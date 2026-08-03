@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use ByRcsc\LaravelComments\CommentsServiceProvider;
 use ByRcsc\LaravelComments\Exceptions\InvalidConfigurationException;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 it('loads the config with its documented defaults', function (): void {
@@ -19,7 +21,9 @@ it('loads the config with its documented defaults', function (): void {
         ->and(config('comments.table_names.comment_attachments'))->toBe('comment_attachments')
         ->and(config('comments.allowed_reactions'))->toBeArray()
         ->and(config('comments.attachments.disk'))->toBeNull()
-        ->and(config('comments.attachments.directory'))->toBe('comments/attachments');
+        ->and(config('comments.attachments.directory'))->toBe('comments/attachments')
+        ->and(config('comments.notifications.reply.enabled'))->toBeFalse()
+        ->and(config('comments.notifications.reply.channels'))->toBe(['mail']);
 });
 
 it('registers the four publish tags', function (): void {
@@ -90,12 +94,47 @@ describe('boot-time validation', function (): void {
             ->toThrow(InvalidConfigurationException::class);
     });
 
+    it('rejects a notifications section that is not an array', function (): void {
+        expect(fn () => $this->rebootWith(['comments.notifications' => 'mail']))
+            ->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects a reply switch that is not a boolean', function (): void {
+        expect(fn () => $this->rebootWith(['comments.notifications.reply' => [
+            'enabled' => 'yes',
+            'channels' => ['mail'],
+        ]]))->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects an empty channel list rather than reading it as off', function (): void {
+        expect(fn () => $this->rebootWith(['comments.notifications.reply' => [
+            'enabled' => true,
+            'channels' => [],
+        ]]))->toThrow(InvalidConfigurationException::class);
+    });
+
+    it('rejects a channel that is not a name', function (): void {
+        expect(fn () => $this->rebootWith(['comments.notifications.reply' => [
+            'enabled' => true,
+            'channels' => ['mail', 42],
+        ]]))->toThrow(InvalidConfigurationException::class);
+    });
+
     it('accepts null for unlimited depth and length', function (): void {
         $this->rebootWith(['comments.max_depth' => null, 'comments.max_length' => null]);
 
         expect(config('comments.max_depth'))->toBeNull()
             ->and(config('comments.max_length'))->toBeNull();
     });
+});
+
+it('registers no policy and defines no gate', function (): void {
+    expect(Gate::policies())->toBe([])
+        ->and(Gate::abilities())->toBe([]);
+});
+
+it('registers the recount command', function (): void {
+    expect(array_keys(Artisan::all()))->toContain('comments:recount');
 });
 
 it('honors a renamed comments table', function (): void {

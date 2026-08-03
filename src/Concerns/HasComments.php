@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace ByRcsc\LaravelComments\Concerns;
 
 use ByRcsc\LaravelComments\Exceptions\CommentableNotPersistedException;
+use ByRcsc\LaravelComments\Exceptions\CommentsCountNotEnabledException;
 use ByRcsc\LaravelComments\Models\Comment;
+use ByRcsc\LaravelComments\Support\CommentCounts;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
@@ -28,6 +30,45 @@ trait HasComments
     public function comments(): MorphMany
     {
         return $this->morphMany(Comment::class, 'commentable');
+    }
+
+    /**
+     * The column on this model's own table that holds a denormalized count of
+     * its approved, non-deleted comments, or null to keep no count - which is
+     * the default, and stays the default until you say otherwise.
+     *
+     * Opting in is this override plus the migration that adds the column; the
+     * package writes neither, because the table is yours:
+     *
+     *     $table->unsignedInteger('comments_count')->default(0);
+     *
+     *     public function commentsCountColumn(): ?string
+     *     {
+     *         return 'comments_count';
+     *     }
+     *
+     * From there the count is maintained through the package's own events, in
+     * atomic database increments. Writes that go around Eloquent - the query
+     * builder, raw SQL, an upsert - are not intercepted, and `comments:recount`
+     * is the backstop for the drift they cause.
+     */
+    public function commentsCountColumn(): ?string
+    {
+        return null;
+    }
+
+    /**
+     * Recompute this record's comment count from the comments table and write
+     * it, returning the value now stored.
+     *
+     * This is the single-record repair `comments:recount` runs in bulk. It
+     * writes through the query builder, so no timestamp moves and no model
+     * event fires; the in-memory attribute is brought along so the model you
+     * are holding does not disagree with the row.
+     */
+    public function recountComments(): int
+    {
+        return CommentCounts::recount($this) ?? throw CommentsCountNotEnabledException::for($this);
     }
 
     /**

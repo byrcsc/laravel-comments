@@ -5,6 +5,7 @@ declare(strict_types=1);
 use ByRcsc\LaravelComments\Events\CommentAttachmentChanged;
 use ByRcsc\LaravelComments\Events\CommentEvent;
 use ByRcsc\LaravelComments\Events\CommentModerated;
+use ByRcsc\LaravelComments\Events\CommentPinChanged;
 use ByRcsc\LaravelComments\Events\CommentReacted;
 use ByRcsc\LaravelComments\Exceptions\CommentsException;
 use Illuminate\Database\Eloquent\Model;
@@ -56,6 +57,37 @@ arch('events other than the base classes are final')
         CommentModerated::class,
         CommentReacted::class,
         CommentAttachmentChanged::class,
+        CommentPinChanged::class,
+    ]);
+
+// Listeners are the package's own wiring and nobody else's extension point;
+// the policy and the notification are the opposite, and both are extended by
+// name in the documentation.
+arch('listeners are final')
+    ->expect('ByRcsc\LaravelComments\Listeners')
+    ->toBeFinal();
+
+arch('the policy stays extendable')
+    ->expect('ByRcsc\LaravelComments\Policies')
+    ->not->toBeFinal();
+
+arch('the notification stays extendable')
+    ->expect('ByRcsc\LaravelComments\Notifications')
+    ->not->toBeFinal();
+
+arch('commands are final')
+    ->expect('ByRcsc\LaravelComments\Console')
+    ->toBeFinal();
+
+// The policy is a decision table and nothing else. One that queried, wrote, or
+// resolved an authenticated user would be making decisions the application
+// thought it had kept.
+arch('the policy only answers questions')
+    ->expect('ByRcsc\LaravelComments\Policies')
+    ->not->toUse([
+        'Illuminate\Support\Facades\Auth',
+        'Illuminate\Support\Facades\DB',
+        'Illuminate\Support\Facades\Gate',
     ]);
 
 arch('contracts are interfaces applications implement')
