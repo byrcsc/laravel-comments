@@ -66,9 +66,10 @@ drift — if you change a public seam, run it and fix what broke.
 ## Where tests go
 
 Tests are grouped by behavior, not by class: `Write/`, `Thread/`, `Deletion/`,
-`Lifecycle/`, `Moderation/`, `Reactions/`, `Revisions/`, and `Attachments/`
-today, with more groups arriving with their features. Extend the group that
-owns the behavior rather than adding a parallel suite for a class.
+`Lifecycle/`, `Moderation/`, `Reactions/`, `Revisions/`, `Attachments/`,
+`Pinning/`, `Counts/`, `Notifications/`, and `Authorization/` today, with more
+groups arriving with their features. Extend the group that owns the behavior
+rather than adding a parallel suite for a class.
 
 `Attachments/ImageAttachmentTest.php` is the one suite that cannot be fully
 green in a single install: `intervention/image` is a Composer suggestion, so

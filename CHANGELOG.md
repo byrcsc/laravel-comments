@@ -64,3 +64,37 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   before it runs.
 - `InvalidAttachmentException`, `ImageSupportMissingException`, and
   `AttachmentStorageFailedException`.
+- Pinning: `pin()` and `unpin()` with an optional actor, idempotent and firing
+  exactly one event per real change; `pinned()` and `pinnedFirst()` scopes;
+  `CommentPinned` and `CommentUnpinned` events over the shared
+  `CommentPinChanged` base. Pinning is independent of moderation status, and
+  several comments may be pinned at once.
+- Denormalized comment counts: opt a commentable in by returning a column name
+  from `commentsCountColumn()`, and the count of its approved, non-deleted
+  comments is maintained through the package's own events in atomic database
+  increments. `recountComments()` repairs one record, and the
+  `comments:recount` artisan command repairs a model type, a single record, or
+  everything, reporting what it changed. `--dry-run` reports without writing.
+- `CommentsCountNotEnabledException`.
+- The reply notification: `CommentReplied`, queued, off until
+  `comments.notifications.reply.enabled` says otherwise. It fires when a reply
+  enters the approved set, at most once per reply, to the parent comment's
+  author when that commentator is a Laravel `Notifiable` model. Guest-authored
+  parents and self-replies are never notified. Channels come from
+  `comments.notifications.reply.channels`; binding a subclass over
+  `CommentReplied` in the container replaces the message.
+- `reply_notified_at` column on `comments`, the persisted at-most-once marker.
+- Reply notification wording in `comments::comments` and a publishable
+  `comments::mail.reply` markdown view.
+- `CommentPolicy`, shipped but never registered: `create`, `update`, `delete`,
+  `restore`, `forceDelete`, `approve`, `reject`, `markAsSpam`, `pin`, `unpin`,
+  `react`, and `attach`. Authors update and delete their own comments;
+  moderation denies until an application overrides it. The engine's own
+  methods never consult it.
+
+### Changed
+
+- `CommentModerated` and its subclasses now carry `$previousStatus`, the
+  status a comment moved from. Counts and the reply notification are both
+  built on "did it leave the approved set?", which the comment alone cannot
+  answer after the write.

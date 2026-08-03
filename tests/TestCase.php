@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace ByRcsc\LaravelComments\Tests;
 
 use ByRcsc\LaravelComments\CommentsServiceProvider;
+use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Orchestra\Testbench\TestCase as Orchestra;
@@ -46,6 +47,18 @@ abstract class TestCase extends Orchestra
         $this->refreshApplication();
 
         $this->defineDatabaseMigrations();
+    }
+
+    /**
+     * The morph map is static on the framework's `Relation`, so a test that
+     * registers one hands it to whatever runs next. The suite runs in random
+     * order, which is exactly how that becomes a mystery failure.
+     */
+    protected function tearDown(): void
+    {
+        Relation::morphMap([], false);
+
+        parent::tearDown();
     }
 
     protected function defineEnvironment($app): void
@@ -170,6 +183,10 @@ abstract class TestCase extends Orchestra
         Schema::create('posts', function (Blueprint $table) {
             $table->id();
             $table->string('title');
+            // The count column the application owns. `CountedPost` opts into
+            // it; `Post` sits on the same table and keeps no count, which is
+            // what proves the opt-in is a decision rather than a schema sniff.
+            $table->unsignedInteger('comments_count')->default(0);
             $table->timestamps();
         });
     }

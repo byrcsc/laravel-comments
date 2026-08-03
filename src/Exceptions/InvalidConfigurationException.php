@@ -94,6 +94,44 @@ final class InvalidConfigurationException extends CommentsException
         );
     }
 
+    public static function invalidNotifications(mixed $notifications): self
+    {
+        $given = get_debug_type($notifications);
+
+        return new self(
+            "The comments.notifications config value must be an array. Got {$given}. Publish the config again if the key is missing."
+        );
+    }
+
+    public static function invalidReplyNotification(mixed $reply): self
+    {
+        $given = get_debug_type($reply);
+
+        return new self(
+            "The comments.notifications.reply config value must be an array holding `enabled` and `channels`. Got {$given}."
+        );
+    }
+
+    public static function invalidReplyNotificationEnabled(mixed $enabled): self
+    {
+        $given = get_debug_type($enabled);
+
+        return new self(
+            "The comments.notifications.reply.enabled config value must be true or false. Got {$given}."
+        );
+    }
+
+    public static function invalidReplyNotificationChannels(mixed $channels): self
+    {
+        $given = is_array($channels)
+            ? ($channels === [] ? 'an empty list' : 'a list holding something that is not a channel name')
+            : get_debug_type($channels);
+
+        return new self(
+            "The comments.notifications.reply.channels config value must be a non-empty list of channel names. Got {$given}. Set `enabled` to false to send nothing."
+        );
+    }
+
     public static function invalidMaxDepth(mixed $depth): self
     {
         $given = is_scalar($depth) ? var_export($depth, true) : get_debug_type($depth);

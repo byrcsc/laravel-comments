@@ -137,10 +137,12 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   `attachments()` relation, and added and removed events; plus `attachImage()`
   sugar built on Laravel's `Image` facade when `intervention/image` is
   installed.
-- Optional denormalized comment counts on the commentable's own table,
-  maintained by the trait and repairable with `comments:recount`.
-- Pinning through `pinned_at`, with scopes for pinned comments and
-  pinned-first ordering.
+- Optional denormalized comment counts on the commentable's own table, opted
+  into by returning a column name from `commentsCountColumn()`, maintained in
+  atomic increments, and repairable with `recountComments()` or the
+  `comments:recount` command.
+- Pinning through `pin()` and `unpin()`, with `pinned()` and `pinnedFirst()`
+  scopes and their own events.
 - One opt-in notification, disabled by default: the author of a comment is
   notified when it receives a reply. Wording and mail views are publishable and
   locale-aware.
@@ -190,9 +192,37 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   only your application can tell a fixed typo from an approved comment edited
   into an advert. The event fires after the revision is filed, so the listener
   has the previous body to judge against.
-- Denormalized counts include approved, non-deleted comments only, and are
-  maintained through model events. Query-builder updates, upserts, quiet
-  saves, and raw SQL bypass model events; `comments:recount` is the backstop.
+- Denormalized counts are off until a model returns a column name from
+  `commentsCountColumn()`. The column and its migration are the application's,
+  and both are one line:
+
+  ```php
+  $table->unsignedInteger('comments_count')->default(0);
+
+  public function commentsCountColumn(): ?string
+  {
+      return 'comments_count';
+  }
+  ```
+
+  They include approved, non-deleted comments only, and are maintained through
+  model events in atomic increments, so two comments approved in the same
+  request both land. Query-builder updates, upserts, quiet saves, and raw SQL
+  bypass model events; `comments:recount` is the backstop, and `--dry-run`
+  shows what it would change first.
+- Pinning is independent of moderation. A pinned comment keeps whatever status
+  it had, pinning never changes one, and several comments may be pinned on the
+  same record: a one-pin rule is a decision for your controller, not the
+  engine. `pinnedFirst()` orders pinned comments first, most recently pinned
+  among them, then the rest oldest first.
+- The reply notification fires when a reply *enters the approved set* — at
+  once if it was created approved, on approval if it arrived pending, never if
+  it is rejected or marked as spam. At most once per reply for its whole life,
+  proven by a `reply_notified_at` column rather than anything held in memory,
+  so an approve-edit-approve round trip still sends one. Its recipient is the
+  parent comment's author and nobody else: guest-authored parents, commentator
+  models without Laravel's `Notifiable`, and self-replies all produce no
+  delivery. It is queued, so writing a comment never waits on mail.
 - `attach()` records metadata about a file your application already stored: a
   disk, a path on it, and what you say the file is called, is, and weighs. The
   package never opens the file, never checks that it is there, and never
@@ -212,9 +242,15 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   framework's default optimize step unless you pass `optimize: false`, which
   is what a caller who configured the pipeline themselves wants.
 - The engine never authorizes its own methods. `CommentPolicy` ships with the
-  package but is not registered for you; its defaults allow authors to update
-  and delete their own comments and deny the moderation abilities until your
-  application overrides them.
+  package but is not registered for you — the provider defines no gates and no
+  policies. Register it with `Gate::policy(Comment::class,
+  CommentPolicy::class)` and enforce it where your application calls the
+  engine. Its defaults allow authors to update and delete their own comments,
+  allow any authenticated actor to create, react, and attach, and deny
+  `approve`, `reject`, `markAsSpam`, `pin`, `unpin`, `restore`, and
+  `forceDelete` until you override them. Extend the class to override a single
+  ability. Ownership is matched through the whole commentator morph, so a
+  guest-authored comment matches no actor.
 - Notification delivery is opt-in and disabled by default.
 - The package provides no UI, role package, or tenancy layer. Your application
   owns those.

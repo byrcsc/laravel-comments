@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Models\Comment;
+use ByRcsc\LaravelComments\Tests\Stubs\CountedPost;
+use ByRcsc\LaravelComments\Tests\Stubs\NotifiableUser;
 use ByRcsc\LaravelComments\Tests\Stubs\Post;
 use ByRcsc\LaravelComments\Tests\Stubs\User;
 use ByRcsc\LaravelComments\Tests\TestCase;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 uses(TestCase::class)->in(__DIR__);
 
@@ -19,9 +22,43 @@ function user(string $name = 'Ada Lovelace'): User
     ]);
 }
 
+/**
+ * The same table `user()` writes to, with Laravel's `Notifiable` on it. The
+ * package only ever notifies a commentator that has it.
+ */
+function notifiableUser(string $name = 'Ada Lovelace'): NotifiableUser
+{
+    return NotifiableUser::create([
+        'name' => $name,
+        'email' => str_replace(' ', '.', strtolower($name)).'.'.uniqid().'@example.test',
+    ]);
+}
+
 function post(string $title = 'A post worth discussing'): Post
 {
     return Post::create(['title' => $title]);
+}
+
+/**
+ * The same table `post()` writes to, opted into a denormalized count. Two
+ * models over one table is what proves the opt-in is a decision rather than a
+ * schema sniff.
+ */
+function countedPost(string $title = 'A post worth discussing'): CountedPost
+{
+    return CountedPost::create(['title' => $title]);
+}
+
+/**
+ * The count as the database holds it. Reading it off the model in hand would
+ * only prove that PHP can add up; the whole point of the column is what a
+ * listing page selects.
+ */
+function storedCount(Model $commentable): int
+{
+    return (int) DB::table($commentable->getTable())
+        ->where($commentable->getKeyName(), $commentable->getKey())
+        ->value('comments_count');
 }
 
 /**

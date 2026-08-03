@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace ByRcsc\LaravelComments;
 
+use ByRcsc\LaravelComments\Console\RecountCommentsCommand;
 use ByRcsc\LaravelComments\Enums\CommentStatus;
 use ByRcsc\LaravelComments\Exceptions\InvalidConfigurationException;
+use ByRcsc\LaravelComments\Listeners\MaintainsCommentCounts;
+use ByRcsc\LaravelComments\Listeners\SendsReplyNotifications;
 use ByRcsc\LaravelComments\Support\AllowedReactions;
 use ByRcsc\LaravelComments\Support\AttachmentDefaults;
+use ByRcsc\LaravelComments\Support\ReplyNotificationSettings;
 use ByRcsc\LaravelComments\Support\TableNames;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
@@ -26,7 +30,8 @@ final class CommentsServiceProvider extends PackageServiceProvider
                 'create_comment_reactions_table',
                 'create_comment_revisions_table',
                 'create_comment_attachments_table',
-            );
+            )
+            ->hasCommand(RecountCommentsCommand::class);
     }
 
     /**
@@ -57,6 +62,19 @@ final class CommentsServiceProvider extends PackageServiceProvider
         // config's business, and it would be the wrong thing to fail a boot
         // over in an application that never attaches anything.
         AttachmentDefaults::read($config['attachments'] ?? null);
+
+        ReplyNotificationSettings::read($config['notifications'] ?? null);
+
+        $events = $this->app->make('events');
+
+        // Both are registered unconditionally, and both ask their question per
+        // comment: whether the commentable keeps a count, and whether the
+        // notification is switched on. An application that uses neither pays
+        // for an array lookup and nothing else - and a config change takes
+        // effect without a boot, which is what a test that flips a switch
+        // mid-run needs.
+        $events->subscribe(MaintainsCommentCounts::class);
+        $events->subscribe(SendsReplyNotifications::class);
     }
 
     /**
