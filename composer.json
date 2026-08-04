@@ -1,6 +1,6 @@
 {
     "name": "byrcsc/laravel-comments",
-    "description": "Threaded comments for Eloquent models: polymorphic commentators with guest support, moderation statuses, reactions, edit revisions, attachments, pinning, and a full set of lifecycle events.",
+    "description": "Threaded comments for Eloquent models, with guest authors, moderation statuses, reactions, edit history, attachments, pinning, and lifecycle events.",
     "keywords": [
         "laravel",
         "comments",

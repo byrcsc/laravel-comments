@@ -5,12 +5,16 @@
 [![GitHub PHPStan Action Status](https://img.shields.io/github/actions/workflow/status/byrcsc/laravel-comments/phpstan.yml?branch=main&label=phpstan&style=flat-square)](https://github.com/byrcsc/laravel-comments/actions?query=workflow%3APHPStan+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/byrcsc/laravel-comments.svg?style=flat-square)](https://packagist.org/packages/byrcsc/laravel-comments)
 
-Threaded comments for Eloquent models: polymorphic commentators with guest
-support, moderation statuses, reactions, edit revisions, attachments, pinning,
-and a full set of lifecycle events.
+Threaded comments for any Eloquent model.
 
-The package provides the comment engine. Your application keeps ownership of
-its UI, rendering, users, and moderation rules.
+Your posts need comments? A sale needs a remark? A ticket needs an internal
+note? Add one trait to the model and it has them: threaded, moderated, and
+ready for reactions, edit history, and attachments when you need those too.
+
+The table is polymorphic, so posts, orders, tickets, and invoices all share it.
+
+The package handles storing and moving comments. Your application keeps its UI,
+its rendering, its users, and its moderation rules.
 
 | Laravel | Tested PHP versions |
 |---|---|
@@ -119,40 +123,33 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
 - Threaded replies through a self-referencing parent, with a configurable
   maximum depth and scopes for top-level comments and whole threads.
 - Moderation statuses (`pending`, `approved`, `rejected`, `spam`) with
-  `approve()`, `reject()`, and `markAsSpam()`, a scope per status, a
+  `approve()`, `reject()`, and `markAsSpam()`, a scope per status, and a
   `DecidesCommentStatus` hook a commentable implements to choose the initial
-  status, and configurable defaults. Guests start `pending` out of the box.
-- Reactions on comments: an allowlist of permitted reactions, `react()`,
-  `unreact()`, and `toggleReaction()`, one row per reactor per reaction
-  enforced by the database, `hasReactionFrom()` and `reactionsBy()` for
-  highlighting what an actor already pressed, a `reactions()` relation for the
-  rows themselves, and a `reactionSummary()` of counts whose `reactionCounts`
-  relation eager loads a whole thread's totals in one query.
-- Soft deletes with tombstones for threads, subtree removal on force delete,
-  an `edited_at` timestamp, and a `revisions()` relation of rows recording the
-  prior body and the editor on every body change. `edit()` names the editor;
-  any other body write records the same revision with a null one.
-- Attachments as metadata rows (disk, path, name, MIME type, size) for files
-  the application stored itself, with `attach()`, `detach()`, an
-  `attachments()` relation, and added and removed events; plus `attachImage()`
-  sugar built on Laravel's `Image` facade when `intervention/image` is
-  installed.
-- Optional denormalized comment counts on the commentable's own table, opted
-  into by returning a column name from `commentsCountColumn()`, maintained in
-  atomic increments, and repairable with `recountComments()` or the
-  `comments:recount` command.
+  status.
+- Reactions with a configurable allowlist, `react()`, `unreact()`, and
+  `toggleReaction()`, one row per reactor per reaction enforced by the
+  database, and a `reactionSummary()` that eager loads a whole thread's totals
+  in one query.
+- Soft deletes with tombstones for threads, subtree removal on force delete, an
+  `edited_at` timestamp, and a `revisions()` relation recording the prior body
+  and the editor on every body change.
+- Attachments as metadata rows for files the application stored itself, plus
+  `attachImage()` sugar built on Laravel's `Image` facade when
+  `intervention/image` is installed.
+- Optional denormalized comment counts on the commentable's own table,
+  maintained in atomic increments and repairable with `recountComments()` or
+  the `comments:recount` command.
 - Pinning through `pin()` and `unpin()`, with `pinned()` and `pinnedFirst()`
   scopes and their own events.
 - One opt-in notification, disabled by default: the author of a comment is
   notified when it receives a reply. Wording and mail views are publishable and
   locale-aware.
 - Lifecycle events for every transition: created, updated, deleted, restored,
-  approved, rejected, marked as spam, reaction added and removed, attachment
-  added and removed, pinned and unpinned.
-- A `CommentPolicy` you may register, factories for every model with states
-  for guest, each status, pinned, soft-deleted, and threaded comments, and a
-  `Comments::fake()` helper that records what your application asked the
-  engine for instead of writing it.
+  approved, rejected, marked as spam, reactions, attachments, and pinning.
+- A `CommentPolicy` you may register, factories for every model with states for
+  guest, each status, pinned, soft-deleted, and threaded comments, and a
+  `Comments::fake()` helper that records what your application asked the engine
+  for instead of writing it.
 
 ## Important behavior
 
@@ -161,107 +158,61 @@ revisions, attachments, pinning, counts, notifications, and the rest are in the
   decision the package will not make for you.
 - Transitions are idempotent. Approving an approved comment writes nothing and
   fires nothing, so counts and notifications built on the events cannot double
-  up. Each comment carries its own status; approving a comment never touches
-  its replies.
+  up. Each comment carries its own status; approving one never touches its
+  replies.
+- Reactions require an identified reactor. Guests cannot react, because
+  deduplication is impossible without an identity, and the database enforces
+  the same rule behind the engine.
 - Only commentators that are Laravel `Notifiable` models receive the reply
   notification. Guests are never emailed: the package refuses to send mail to
-  an unverified address it cannot offer an unsubscribe path for.
-- Reactions require an identified reactor. Guests cannot react, because
-  deduplication is impossible without an identity. Reacting twice with the
-  same reaction is a no-op rather than an error, and the database enforces the
-  same rule behind the engine.
-- A soft-deleted comment neither takes new reactions nor gives up the ones it
-  had: both `react()` and `unreact()` refuse. The tombstone is history for a
-  moderator to read, not a place to keep voting. Force deleting removes the
-  reactions with the comment.
+  an unverified address it cannot offer an unsubscribe path for. Notification
+  delivery is opt-in and disabled by default.
+- The reply notification fires when a reply *enters the approved set*, at most
+  once per reply for its whole life, proven by a `reply_notified_at` column
+  rather than anything held in memory.
+- Soft deleting a comment keeps its replies and works as the thread's
+  tombstone; force deleting removes the whole subtree through the foreign key.
+  A tombstone neither takes new reactions, attachments, or edits, nor gives up
+  the ones it had.
 - Maximum thread depth is enforced when the reply is created. Existing threads
   are never reshaped by a config change.
-- Soft deleting a comment keeps its replies and works as the thread's
-  tombstone. Force deleting removes the whole subtree through the foreign key.
-- Revisions and the `edited_at` timestamp are recorded through Eloquent model
+- Revisions, `edited_at`, and counts are maintained through Eloquent model
   events, so `edit()`, `update()`, and a plain attribute save all leave the
-  same trace, and `saveQuietly()`, the query builder, and raw SQL leave none.
-  Only a body change counts: a status transition or a pin touches neither.
-  A body change also goes through the same length limit a new comment does,
-  and a soft-deleted comment refuses one: rewriting a tombstone would leave
-  the moderator reading history that had been edited under them.
-  Revision rows are ordinary rows, append-only by convention rather than by
-  proof: there is no hash chain and no tamper evidence here. If you need a
-  verifiable history, that is what
-  [byrcsc/laravel-approval](https://github.com/byrcsc/laravel-approval) is for.
+  same trace, while `saveQuietly()`, the query builder, and raw SQL leave none.
+  `comments:recount` is the backstop for counts, and `--dry-run` shows what it
+  would change first.
+- Revision rows are append-only by convention rather than by proof: there is no
+  hash chain and no tamper evidence here. Treat the history as a record for a
+  moderator to read, not as evidence that would survive a hostile database.
 - The package never re-moderates an edited comment. `CommentUpdated` plus
   `wasChanged('body')` is the hook for sending one back to `pending`, because
   only your application can tell a fixed typo from an approved comment edited
   into an advert. The event fires after the revision is filed, so the listener
   has the previous body to judge against.
 - Denormalized counts are off until a model returns a column name from
-  `commentsCountColumn()`. The column and its migration are the application's,
-  and both are one line:
-
-  ```php
-  $table->unsignedInteger('comments_count')->default(0);
-
-  public function commentsCountColumn(): ?string
-  {
-      return 'comments_count';
-  }
-  ```
-
-  They include approved, non-deleted comments only, and are maintained through
-  model events in atomic increments, so two comments approved in the same
-  request both land. Every status change counts, however it was made:
-  `approve()` and a plain `$comment->status = ...; save()` are the same thing
-  here, which matters because sending an edited comment back to `pending` has
-  no transition method and is meant to be written by hand. Query-builder
-  updates, upserts, quiet saves, and raw SQL bypass model events;
-  `comments:recount` is the backstop, and `--dry-run` shows what it would
-  change first.
-- Pinning is independent of moderation. A pinned comment keeps whatever status
-  it had, pinning never changes one, and several comments may be pinned on the
-  same record: a one-pin rule is a decision for your controller, not the
-  engine. `pinnedFirst()` orders pinned comments first, most recently pinned
-  among them, then the rest oldest first.
-- The reply notification fires when a reply *enters the approved set* — at
-  once if it was created approved, on approval if it arrived pending, never if
-  it is rejected or marked as spam. At most once per reply for its whole life,
-  proven by a `reply_notified_at` column rather than anything held in memory,
-  so an approve-edit-approve round trip still sends one. Its recipient is the
-  parent comment's author and nobody else: guest-authored parents, commentator
-  models without Laravel's `Notifiable`, and self-replies all produce no
-  delivery. It is queued, so writing a comment never waits on mail.
-- `attach()` records metadata about a file your application already stored: a
-  disk, a path on it, and what you say the file is called, is, and weighs. The
+  `commentsCountColumn()`; the column and its migration are the application's.
+  They include approved, non-deleted comments only, and every status change
+  counts however it was made.
+- Pinning is independent of moderation, and several comments may be pinned on
+  the same record: a one-pin rule is a decision for your controller, not the
+  engine.
+- `attach()` records metadata about a file your application already stored. The
   package never opens the file, never checks that it is there, and never
-  deletes it. Soft deleting a comment keeps its attachment rows, so a tombstone
-  still shows a moderator what was posted; force deleting removes them through
-  the foreign key, and fires `AttachmentRemoved` for each one first, while the
-  disk and path are still readable. That is the file-cleanup hook, and it
-  covers the whole subtree the cascade takes, not only the comment you deleted.
-  A tombstone neither takes new attachments nor gives up the ones it had, for
-  the same reason its reactions are frozen.
-- `attachImage()` processes, stores, and records an image in one call. It is
-  the only path where the package writes bytes to a disk, and it writes only
-  the ones it was handed. It needs the framework's `Image` facade, which
-  arrived in Laravel 13, and `intervention/image`, which is a Composer
-  suggestion rather than a requirement; without it the call throws
-  `ImageSupportMissingException` rather than a driver error. It applies the
-  framework's default optimize step unless you pass `optimize: false`, which
-  is what a caller who configured the pipeline themselves wants.
+  deletes it. `AttachmentRemoved` fires for every row a force delete takes,
+  while the disk and path are still readable, and that is the file-cleanup
+  hook.
+- `attachImage()` is the only path where the package writes bytes to a disk. It
+  needs the framework's `Image` facade, which arrived in Laravel 13, and
+  `intervention/image`, a Composer suggestion rather than a requirement;
+  without it the call throws `ImageSupportMissingException`.
 - The engine never authorizes its own methods. `CommentPolicy` ships with the
-  package but is not registered for you — the provider defines no gates and no
+  package but is not registered for you: the provider defines no gates and no
   policies. Register it with `Gate::policy(Comment::class,
   CommentPolicy::class)` and enforce it where your application calls the
-  engine. Its defaults allow authors to update and delete their own comments,
-  allow any authenticated actor to create, react, and attach, and deny
-  `approve`, `reject`, `markAsSpam`, `pin`, `unpin`, `restore`, and
-  `forceDelete` until you override them. Extend the class to override a single
-  ability. Ownership is matched through the whole commentator morph, so a
-  guest-authored comment matches no actor.
-- Notification delivery is opt-in and disabled by default.
+  engine. Moderation abilities deny until you override them.
 - `Comments::fake()` fakes writes, not reads. A faked comment carries a key and
-  can be replied to, and is held to the same body and depth limits a real write
-  is, but it is not a row: relations and scopes still read a database that has
-  nothing in it. Ask the fake what it recorded instead.
+  can be replied to, but it is not a row: relations and scopes still read a
+  database that has nothing in it. Ask the fake what it recorded instead.
 - The package provides no UI, role package, or tenancy layer. Your application
   owns those.
 
@@ -291,10 +242,9 @@ and none of it as ruled out forever.
   middleware or your spam service integration.
 - **Generic reactions.** Reactions attach to comments, not to arbitrary
   models.
-- **Multi-stage moderation.** One status field, one transition at a time. For
-  staged sign-off, workflows, and a verifiable action history, pair the
-  package with [byrcsc/laravel-approval](https://github.com/byrcsc/laravel-approval);
-  the documentation includes the recipe.
+- **Multi-stage moderation.** One status field, one transition at a time. There
+  are no approval stages, no sign-off order, and no verifiable action history.
+  The moderation events are the hook if you need to drive one.
 - **Roles, teams, org charts, or tenancy.** The policy and your resolvers
   decide who moderates. The package never expands a role into its members.
 - **Blocking every write path.** Counts, revisions, and `edited_at` react to
@@ -302,17 +252,25 @@ and none of it as ruled out forever.
 
 ## Documentation
 
+- [Introduction](https://docs.rcsc.dev/laravel-comments/v1/introduction)
 - [Installation and setup](https://docs.rcsc.dev/laravel-comments/v1/installation)
+- [Configuration](https://docs.rcsc.dev/laravel-comments/v1/configuration)
 - [Quick start](https://docs.rcsc.dev/laravel-comments/v1/quick-start)
-- [Writing comments and threads](https://docs.rcsc.dev/laravel-comments/v1/comments-and-threads)
-- [Guest comments](https://docs.rcsc.dev/laravel-comments/v1/guest-comments)
+- [Commentable models](https://docs.rcsc.dev/laravel-comments/v1/commentable-models)
+- [Threads and replies](https://docs.rcsc.dev/laravel-comments/v1/threads-and-replies)
+- [Initial status](https://docs.rcsc.dev/laravel-comments/v1/initial-status)
 - [Moderation](https://docs.rcsc.dev/laravel-comments/v1/moderation)
 - [Reactions](https://docs.rcsc.dev/laravel-comments/v1/reactions)
-- [Revisions and deletion](https://docs.rcsc.dev/laravel-comments/v1/revisions-and-deletion)
+- [Revisions](https://docs.rcsc.dev/laravel-comments/v1/revisions)
+- [Deletion](https://docs.rcsc.dev/laravel-comments/v1/deletion)
 - [Attachments](https://docs.rcsc.dev/laravel-comments/v1/attachments)
-- [Counts, pinning, and scopes](https://docs.rcsc.dev/laravel-comments/v1/counts-pinning-and-scopes)
+- [Comment counts](https://docs.rcsc.dev/laravel-comments/v1/comment-counts)
+- [Pinning](https://docs.rcsc.dev/laravel-comments/v1/pinning)
 - [Notifications](https://docs.rcsc.dev/laravel-comments/v1/notifications)
 - [Authorization](https://docs.rcsc.dev/laravel-comments/v1/authorization)
+- [Events](https://docs.rcsc.dev/laravel-comments/v1/events)
+- [Console commands](https://docs.rcsc.dev/laravel-comments/v1/console-commands)
+- [Rendering and safety](https://docs.rcsc.dev/laravel-comments/v1/rendering-and-safety)
 - [Testing](https://docs.rcsc.dev/laravel-comments/v1/testing)
 - [Troubleshooting](https://docs.rcsc.dev/laravel-comments/v1/troubleshooting)
 

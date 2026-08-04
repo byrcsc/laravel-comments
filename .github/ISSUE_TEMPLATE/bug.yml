@@ -6,7 +6,7 @@ body:
     - type: markdown
       attributes:
           value: |
-              Thanks for helping improve Laravel Approval. Remove personal information and any business data from workflow definitions, drafts, and logs before sharing them.
+              Thanks for helping improve Laravel Comments. Remove personal information from comment bodies, guest names and email addresses, and logs before sharing them.
     - type: textarea
       id: what-happened
       attributes:
@@ -19,16 +19,16 @@ body:
       id: how-to-reproduce
       attributes:
           label: How to reproduce the bug
-          description: Provide the smallest code sample or sequence of steps that reliably reproduces the problem. A workflow definition and the decisions made against it is usually the clearest form.
-          placeholder: "1. Define a workflow with...\n2. Submit...\n3. Approve as...\n4. Observe..."
+          description: Provide the smallest code sample or sequence of steps that reliably reproduces the problem. A commentable model and the calls made against it is usually the clearest form.
+          placeholder: "1. Add HasComments to...\n2. Comment as...\n3. Approve...\n4. Observe..."
       validations:
           required: true
     - type: input
       id: package-version
       attributes:
           label: Package version
-          description: Which Laravel Approval version are you using?
-          placeholder: 0.1.0
+          description: Which Laravel Comments version are you using?
+          placeholder: 1.0.0
       validations:
           required: true
     - type: input
