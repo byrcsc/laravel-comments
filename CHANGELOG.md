@@ -7,6 +7,10 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-04
+
+First release. The complete comment engine and its installation schema.
+
 ### Added
 
 - Package skeleton: service provider, publishable config, migrations,
@@ -20,11 +24,18 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
 - Configurable maximum thread depth and maximum body length, enforced at
   creation with package exceptions.
 - Lifecycle events: created, updated, deleted, restored, force deleted.
+  `CommentForceDeleted` carries `$countableRemoved`, how many approved,
+  non-deleted comments the removed subtree held: the database's cascade fires
+  no events for the replies it takes, and nothing can recover the number
+  afterwards.
 - Comment model factory, and a bootable workbench demo application.
 - Moderation: `approve()`, `reject()`, and `markAsSpam()` with an optional
   actor, idempotent and firing exactly one event per real state change.
 - `CommentApproved`, `CommentRejected`, and `CommentMarkedAsSpam` events, over
-  the shared `CommentModerated` base.
+  the shared `CommentModerated` base. Each carries `$previousStatus`, the
+  status the comment moved from, because counts and the reply notification are
+  both built on "did it leave the approved set?", which the comment alone
+  cannot answer after the write.
 - `pending()`, `approved()`, `rejected()`, and `spam()` scopes.
 - Initial status resolution: `comments.default_status` and
   `comments.guest_status` config keys, overridden by a commentable
@@ -45,7 +56,7 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   for naming the editor, a `revisions()` relation, and the `CommentRevision`
   model, which refuses updates.
 - `RevisionIsAppendOnlyException`.
-- Body writes now share one gate: an edit re-checks `comments.max_length` and
+- Body writes share one gate: an edit re-checks `comments.max_length` and
   refuses a soft-deleted comment.
 - `CommentUpdated` is dispatched after the revision is recorded, so a
   re-moderation listener has the previous body to compare against.
@@ -72,7 +83,9 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
 - Denormalized comment counts: opt a commentable in by returning a column name
   from `commentsCountColumn()`, and the count of its approved, non-deleted
   comments is maintained through the package's own events in atomic database
-  increments. `recountComments()` repairs one record, and the
+  increments. The count follows every status change rather than only the
+  transition events, so `approve()` and a plain `$comment->status = ...;
+  save()` are counted alike. `recountComments()` repairs one record, and the
   `comments:recount` artisan command repairs a model type, a single record, or
   everything, reporting what it changed. `--dry-run` reports without writing.
 - `CommentsCountNotEnabledException`.
@@ -91,14 +104,16 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
   `react`, and `attach`. Authors update and delete their own comments;
   moderation denies until an application overrides it. The engine's own
   methods never consult it.
-
 - `Comments::fake()`, which swaps the write path for a recorder so an
   application's own tests can assert what it asked the engine for without
   touching a table. `CommentsFake` records comments, replies, and reactions,
   and carries `assertCommented()`, `assertCommentedOn()`, `assertReplied()`,
   `assertReacted()`, `assertNothingCommented()`, and `assertNothingReacted()`,
   plus `comments()`, `commentsOn()`, `replies()`, `repliesTo()`, and
-  `reactionsOn()` for reading back what it recorded.
+  `reactionsOn()` for reading back what it recorded. The writes it does not
+  record, moderating, editing, pinning, attaching, and deleting, throw
+  `NotFakeableException` while it is recording, rather than writing against a
+  key no table has.
 - Comment factory states: `pinned()`, `trashed()`, and `threaded()`.
 - `CommentReactionFactory`, `CommentRevisionFactory`, and
   `CommentAttachmentFactory`.
@@ -107,21 +122,8 @@ and the package follows [semantic versioning](https://semver.org/spec/v2.0.0.htm
 - `tests/Release/`, a suite that pins the entire documented public surface and
   the guarantees the README states in prose, and runs the quick start against
   the workbench's own models.
+- Tested on PHP 8.3 and 8.4, Laravel 12 and 13, against SQLite, MySQL, and
+  PostgreSQL, with PHPStan at maximum level and no baseline, and Pint.
 
-### Changed
-
-- `CommentModerated` and its subclasses now carry `$previousStatus`, the
-  status a comment moved from. Counts and the reply notification are both
-  built on "did it leave the approved set?", which the comment alone cannot
-  answer after the write.
-- `CommentForceDeleted` now carries `$countableRemoved`, how many approved,
-  non-deleted comments the removed subtree held. The database's cascade fires
-  no events for the replies it takes, and nothing can recover the number
-  afterwards.
-- Denormalized counts follow every status change rather than only the
-  transition events, so `approve()` and a plain `$comment->status = ...;
-  save()` are counted alike. Sending an edited comment back to `pending` has
-  no transition method by design, and the count used to miss it.
-- The writes `Comments::fake()` does not record - moderating, editing,
-  pinning, attaching, deleting - now throw `NotFakeableException` while it is
-  recording, rather than writing against a key no table has.
+[Unreleased]: https://github.com/byrcsc/laravel-comments/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/byrcsc/laravel-comments/releases/tag/v1.0.0
